@@ -1,0 +1,29 @@
+package:
+  name: cytotable
+  version: 0.0.1
+
+source:
+  path: ./cytotable
+
+channels:
+  - conda-forge
+  - defaults
+
+requirements:
+  build:
+    - python
+    - pip
+  run:
+    - python
+    - python-duckdb
+    - pyarrow
+    - cloudpathlib
+
+test:
+  imports:
+    - cytotable
+
+about:
+  home: http://github.com/username/mypackage
+  license: Some license
+  summary: A short description of your package
