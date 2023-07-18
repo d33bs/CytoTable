@@ -125,6 +125,9 @@ def _get_source_filepaths(
             # if we don't have sqlite source, append the existing element
             expanded_sources.append(element)
 
+    # close connection
+    _duckdb_reader().close()
+
     # reset sources to expanded_sources
     sources = expanded_sources
 

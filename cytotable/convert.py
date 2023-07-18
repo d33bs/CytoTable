@@ -77,6 +77,8 @@ def _get_table_chunk_offsets(
             )
             .fetchone()[0]
         )
+        # close connection
+        _duckdb_reader().close()
 
     # catch input errors which will result in skipped files
     except (duckdb.InvalidInputException, NoInputDataException) as invalid_input_exc:
@@ -167,7 +169,7 @@ def _source_chunk_to_parquet(
             ) TO '{result_filepath}'
             (FORMAT PARQUET);
             """
-        )
+        ).close()
     except duckdb.Error as e:
         # if we see a mismatched type error
         # run a more nuanced query through sqlite
@@ -583,6 +585,8 @@ def _join_source_chunk(
 
     # perform compartment joins using duckdb over parquet files
     result = _duckdb_reader().execute(joins).arrow()
+    # close connection
+    _duckdb_reader().close()
 
     # drop nulls if specified
     if drop_null:
