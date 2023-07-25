@@ -127,8 +127,8 @@ def _prep_cast_column_data_types(
 
 @python_app
 def _gather_tablenumber(
-    source_group_name: str, source: Dict[str, Any]
-) -> Optional[int]:
+    source_group_name: str, source_group: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
     """
     Gathers a "TableNumber" for the table which is a unique identifier intended
     to help differentiate between imagenumbers to create distinct results.
@@ -143,13 +143,12 @@ def _gather_tablenumber(
     Args:
         source_group_name: str
             Name of the source group (for ex. compartment or metadata table name)
-        source: Dict[str, Any]
-            Contains the source data to be chunked. Represents a single
-            file or table of some kind along with collected information about table.
+        source_group: List[Dict[str, Any]]
+            Contains metadata about data tables and related contents.
 
     Returns:
-        str or None
-            If string, a checksum of the table
+        List[Dict[str, Any]]
+            New source group with added TableNumber details.
     """
 
     import zlib
@@ -1147,21 +1146,12 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
 
     # add tablenumber details (providing a placeholder if add_tablenumber == False)
     tablenumber_prepared = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "tablenumber": _gather_tablenumber(
-                        source=source,
-                        source_group_name=source_group_name,
-                    ).result()
-                    # only add the tablenumber if parameter tells us so
-                    if add_tablenumber
-                    else None
-                },
-            )
-            for source in source_group_vals
-        ]
+        source_group_name: _gather_tablenumber(
+            source_group=source_group_vals,
+            source_group_name=source_group_name,
+        ).result()
+        # only add the tablenumber if parameter tells us so
+        if add_tablenumber else source_group_vals
         for source_group_name, source_group_vals in column_names_and_types_gathered.items()
     }
 
