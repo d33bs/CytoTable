@@ -22,12 +22,22 @@ from pycytominer.cyto_utils.cells import SingleCells
 from cytotable.utils import _column_sort, _default_parsl_config
 
 
-@pytest.fixture(name="load_parsl", scope="session", autouse=True)
-def fixture_load_parsl() -> None:
+@pytest.fixture(name="load_parsl", scope="session")
+def fixture_load_parsl() -> Generator:
     """
     Fixture for loading parsl for tests
     """
-    parsl.load(_default_parsl_config())
+    parsl_dir = tempfile.mkdtemp()
+
+    default_config = _default_parsl_config()
+
+    default_config.run_dir = parsl_dir
+
+    parsl.load(default_config)
+
+    yield
+
+    shutil.rmtree(path=parsl_dir, ignore_errors=True)
 
 
 # note: we use name here to avoid pylint flagging W0621

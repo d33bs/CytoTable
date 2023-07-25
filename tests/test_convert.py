@@ -2,7 +2,7 @@
 Tests for CytoTable.convert and related.
 """
 
-# pylint: disable=no-member,too-many-lines
+# pylint: disable=no-member,too-many-lines,unused-argument
 
 import itertools
 import pathlib
@@ -23,6 +23,7 @@ from pycytominer.cyto_utils.cells import SingleCells
 from cytotable.convert import (
     _concat_join_sources,
     _concat_source_group,
+    _gather_tablenumber,
     _get_join_chunks,
     _infer_source_group_common_schema,
     _join_source_chunk,
@@ -34,6 +35,7 @@ from cytotable.presets import config
 from cytotable.sources import _get_source_filepaths, _infer_source_datatype
 from cytotable.utils import (
     _column_sort,
+    _default_parsl_config,
     _duckdb_reader,
     _sqlite_mixed_type_query_to_parquet,
 )
@@ -59,7 +61,9 @@ def test_config():
         ) == sorted(config_preset.keys())
 
 
-def test_get_source_filepaths(get_tempdir: str, data_dir_cellprofiler: str):
+def test_get_source_filepaths(
+    load_parsl: None, get_tempdir: str, data_dir_cellprofiler: str
+):
     """
     Tests _get_source_filepaths
     """
@@ -104,7 +108,7 @@ def test_get_source_filepaths(get_tempdir: str, data_dir_cellprofiler: str):
     assert len(set(single_dir_result.keys())) == 4
 
 
-def test_prepend_column_name(get_tempdir: str):
+def test_prepend_column_name(load_parsl: None, get_tempdir: str):
     """
     Tests _prepend_column_name
     """
@@ -184,6 +188,7 @@ def test_prepend_column_name(get_tempdir: str):
 
 
 def test_concat_source_group(
+    load_parsl: None,
     get_tempdir: str,
     example_tables: Tuple[pa.Table, ...],
     example_local_sources: Dict[str, List[Dict[str, Any]]],
@@ -234,7 +239,7 @@ def test_concat_source_group(
         ).result()
 
 
-def test_get_join_chunks(get_tempdir: str):
+def test_get_join_chunks(load_parsl: None, get_tempdir: str):
     """
     Tests _get_join_chunks
     """
@@ -272,7 +277,7 @@ def test_get_join_chunks(get_tempdir: str):
     ) == {"id1", "id2"}
 
 
-def test_join_source_chunk(get_tempdir: str):
+def test_join_source_chunk(load_parsl: None, get_tempdir: str):
     """
     Tests _get_join_chunks
     """
@@ -338,7 +343,7 @@ def test_join_source_chunk(get_tempdir: str):
     )
 
 
-def test_concat_join_sources(get_tempdir: str):
+def test_concat_join_sources(load_parsl: None, get_tempdir: str):
     """
     Tests _concat_join_sources
     """
@@ -424,7 +429,7 @@ def test_concat_join_sources(get_tempdir: str):
     )
 
 
-def test_infer_source_datatype():
+def test_infer_source_datatype(load_parsl: None):
     """
     Tests _infer_source_datatype
     """
@@ -447,7 +452,9 @@ def test_infer_source_datatype():
 
 
 def test_to_parquet(
-    get_tempdir: str, example_local_sources: Dict[str, List[Dict[str, Any]]]
+    load_parsl: None,
+    get_tempdir: str,
+    example_local_sources: Dict[str, List[Dict[str, Any]]],
 ):
     """
     Tests _to_parquet
@@ -476,6 +483,7 @@ def test_to_parquet(
             chunk_size=4,
             infer_common_schema=False,
             drop_null=True,
+            add_tablenumber=False,
         ).result(),
     )
 
@@ -500,6 +508,7 @@ def test_to_parquet(
 
 
 def test_convert_s3_path_csv(
+    load_parsl: None,
     get_tempdir: str,
     example_local_sources: Dict[str, List[Dict[str, Any]]],
     example_s3_endpoint: str,
@@ -519,6 +528,7 @@ def test_convert_s3_path_csv(
         compartments=["cytoplasm", "cells"],
         metadata=["image"],
         identifying_columns=["imagenumber"],
+        add_tablenumber=False,
         # endpoint_url here will be used with cloudpathlib client(**kwargs)
         endpoint_url=example_s3_endpoint,
     )
@@ -546,6 +556,7 @@ def test_convert_s3_path_csv(
 
 
 def test_convert_s3_path_sqlite(
+    load_parsl: None,
     get_tempdir: str,
     data_dir_cellprofiler_sqlite_nf1: str,
     example_s3_endpoint: str,
@@ -702,6 +713,7 @@ def test_convert_cellprofiler_sqlite(
             dest_datatype="parquet",
             source_datatype="sqlite",
             preset="cellprofiler_sqlite",
+            add_tablenumber=False,
         )
     )
 
@@ -738,6 +750,7 @@ def test_convert_cellprofiler_csv(
             dest_datatype="parquet",
             source_datatype="csv",
             compartments=[],
+            add_tablenumber=False,
         )
 
     control_result = cellprofiler_merged_examplehuman
@@ -749,6 +762,7 @@ def test_convert_cellprofiler_csv(
             dest_datatype="parquet",
             source_datatype="csv",
             preset="cellprofiler_csv",
+            add_tablenumber=False,
         )
     )
 
@@ -766,6 +780,7 @@ def test_convert_cellprofiler_csv(
 
 
 def test_cast_data_types(
+    load_parsl: None,
     get_tempdir: str,
     data_dir_cellprofiler_sqlite_nf1: str,
 ):
@@ -781,6 +796,7 @@ def test_cast_data_types(
         dest_datatype="parquet",
         join=True,
         chunk_size=100,
+        add_tablenumber=False,
         preset="cellprofiler_sqlite_pycytominer",
     )
 
@@ -792,6 +808,7 @@ def test_cast_data_types(
         join=True,
         chunk_size=100,
         preset="cellprofiler_sqlite_pycytominer",
+        add_tablenumber=False,
         data_type_cast_map={
             "float": "float32",
             "integer": "int32",
@@ -915,6 +932,7 @@ def test_convert_cellprofiler_sqlite_pycytominer_merge(
             dest_datatype="parquet",
             join=True,
             chunk_size=100,
+            add_tablenumber=False,
             preset="cellprofiler_sqlite_pycytominer",
         )
     )
@@ -1029,6 +1047,7 @@ def test_convert_hte_cellprofiler_csv(
             dest_path=f"{get_tempdir}/ExampleHuman",
             dest_datatype="parquet",
             source_datatype="csv",
+            add_tablenumber=False,
             preset="cellprofiler_csv",
             parsl_config=local_htex,
         )
@@ -1048,3 +1067,35 @@ def test_convert_hte_cellprofiler_csv(
 
     # clean up the parsl config for other tests
     parsl.clear()
+    parsl.load(_default_parsl_config())
+
+
+def test_gather_tablenumber(
+    load_parsl: None, example_local_sources: Dict[str, List[Dict[str, Any]]]
+):
+    """
+    Tests _gather_tablenumber
+    """
+
+    tablenumber_prepared = {
+        source_group_name: [
+            dict(
+                source,
+                **{
+                    "tablenumber": _gather_tablenumber(  # pylint: disable=no-member
+                        source=source,
+                        source_group_name=source_group_name,
+                    ).result()
+                },
+            )
+            for source in source_group_vals
+        ]
+        for source_group_name, source_group_vals in example_local_sources.items()
+    }
+
+    # compare to see that we have a tablenumber key for each element and also
+    # that we received the checksum values for the related tables
+    assert [
+        elem["tablenumber"]
+        for elem in list(itertools.chain(*list(tablenumber_prepared.values())))
+    ] == [782642759, 2915137387, 2213917770, 744364272, 3277408204]

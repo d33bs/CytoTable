@@ -126,6 +126,73 @@ def _prep_cast_column_data_types(
 
 
 @python_app
+def _gather_tablenumber(
+    source_group_name: str, source: Dict[str, Any]
+) -> Optional[int]:
+    """
+    Gathers a "TableNumber" for the table which is a unique identifier intended
+    to help differentiate between imagenumbers to create distinct results.
+
+    We use the following steps for this process:
+    1. Check if a TableNumber already exists.
+    - If it does, we return None (indicating no additional action necessary)
+    - If it does not, we proceed below.
+    2. Build a checksum based on the table data.
+    3. Return this checksum for later use.
+
+    Args:
+        source_group_name: str
+            Name of the source group (for ex. compartment or metadata table name)
+        source: Dict[str, Any]
+            Contains the source data to be chunked. Represents a single
+            file or table of some kind along with collected information about table.
+
+    Returns:
+        str or None
+            If string, a checksum of the table
+    """
+
+    import zlib
+
+    from cloudpathlib import AnyPath
+
+    from cytotable.utils import _duckdb_reader
+
+    BUFFER_SIZE = 65536
+
+    # select column names from table
+    if str(AnyPath(source["source_path"]).suffix).lower() == ".csv":
+        query = f"""
+            SELECT *
+            FROM read_csv_auto('{str(source["source_path"])}')
+            LIMIT 1
+            """
+
+    elif str(AnyPath(source["source_path"]).suffix).lower() == ".sqlite":
+        query = f"""
+            SELECT *
+            FROM sqlite_scan('{str(source["source_path"])}', '{str(source["table_name"])}')
+            LIMIT 1
+            """
+    # determine if TableNumber is already in the result
+    if "TableNumber" in _duckdb_reader().execute(query).arrow().column_names:
+        return None
+
+    # build and return a checksum
+    # referenced from cytominer-database:
+    # https://github.com/cytomining/cytominer-database/blob/master/cytominer_database/ingest_variable_engine.py#L129
+    with open(str(source["source_path"]), "rb") as stream:
+        result = zlib.crc32(bytes(0))
+        while True:
+            buffer = stream.read(BUFFER_SIZE)
+            if not buffer:
+                break
+            result = zlib.crc32(buffer, result)
+
+    return result & 0xFFFFFFFF
+
+
+@python_app
 def _get_table_chunk_offsets(
     source: Dict[str, Any],
     chunk_size: int,
@@ -248,8 +315,19 @@ def _source_chunk_to_parquet(
     )
     pathlib.Path(source_dest_path).mkdir(parents=True, exist_ok=True)
 
+    # build tablenumber segment addition (if necessary)
+    tablenumber_sql = (
+        # to become tablenumber in sql select later with bigint (8-byte integer)
+        # we cast here to bigint to avoid concat or join conflicts later due to
+        # misaligned automatic data typing.
+        f"CAST({source['tablenumber']} AS BIGINT) as TableNumber, "
+        if source["tablenumber"] is not None
+        # if we don't have a tablenumber value, don't introduce the column
+        else ""
+    )
+
     # build the column selection block of query
-    select_columns = ",".join(
+    select_columns = tablenumber_sql + ",".join(
         [
             # here we cast the column to the specified type ensure the colname remains the same
             f"CAST({column['column_name']} AS {column['column_dtype']}) AS {column['column_name']}"
@@ -822,8 +900,8 @@ def _infer_source_group_common_schema(
             path to parquet data.
         data_type_cast_map: Optional[Dict[str, str]], default None
             A dictionary mapping data type groups to specific types.
-            Roughly includes Arrow data types language from:
-            https://arrow.apache.org/docs/python/api/datatypes.html
+            Roughly to eventually align with DuckDB types:
+            https://duckdb.org/docs/sql/data_types/overview
 
     Returns:
         List[Tuple[str, str]]
@@ -935,6 +1013,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     chunk_size: Optional[int],
     infer_common_schema: bool,
     drop_null: bool,
+    add_tablenumber: bool,
     data_type_cast_map: Optional[Dict[str, str]] = None,
     **kwargs,
 ) -> Union[Dict[str, List[Dict[str, Any]]], str]:
@@ -972,10 +1051,12 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             Whether to infer a common schema when concatenating sources.
         drop_null: bool:
             Whether to drop null results.
+        add_tablenumber: bool
+            Whether to attempt to add TableNumber to resulting data
         data_type_cast_map: Dict[str, str]
             A dictionary mapping data type groups to specific types.
-            Roughly includes Arrow data types language from:
-            https://arrow.apache.org/docs/python/api/datatypes.html
+            Roughly to eventually align with DuckDB types:
+            https://duckdb.org/docs/sql/data_types/overview
         **kwargs: Any:
             Keyword args used for gathering source data, primarily relevant for
             Cloudpathlib cloud-based client configuration.
@@ -1064,6 +1145,26 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         for source_group_name, source_group_vals in invalid_files_dropped.items()
     }
 
+    # add tablenumber details (providing a placeholder if add_tablenumber == False)
+    tablenumber_prepared = {
+        source_group_name: [
+            dict(
+                source,
+                **{
+                    "tablenumber": _gather_tablenumber(
+                        source=source,
+                        source_group_name=source_group_name,
+                    ).result()
+                    # only add the tablenumber if parameter tells us so
+                    if add_tablenumber
+                    else None
+                },
+            )
+            for source in source_group_vals
+        ]
+        for source_group_name, source_group_vals in column_names_and_types_gathered.items()
+    }
+
     results = {
         source_group_name: [
             dict(
@@ -1092,7 +1193,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             )
             for source in source_group_vals
         ]
-        for source_group_name, source_group_vals in column_names_and_types_gathered.items()
+        for source_group_name, source_group_vals in tablenumber_prepared.items()
     }
 
     # if we're concatting or joining and need to infer the common schema
@@ -1181,6 +1282,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
     chunk_size: Optional[int] = None,
     infer_common_schema: bool = True,
     drop_null: bool = True,
+    add_tablenumber: bool = True,
     data_type_cast_map: Optional[Dict[str, str]] = None,
     preset: Optional[str] = "cellprofiler_csv",
     parsl_config: Optional[parsl.Config] = None,
@@ -1227,6 +1329,12 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             Whether to infer a common schema when concatenating sources.
         drop_null: bool (Default value = True)
             Whether to drop nan/null values from results
+        add_tablenumber: bool
+            Whether to attempt to add TableNumber to resulting data
+        data_type_cast_map: Optional[Dict[str, str]] = None,
+            A dictionary mapping data type groups to specific types.
+            Roughly to eventually align with DuckDB types:
+            https://duckdb.org/docs/sql/data_types/overview
         preset: str (Default value = "cellprofiler_csv")
             an optional group of presets to use based on common configurations
         parsl_config: Optional[parsl.Config] (Default value = None)
@@ -1346,6 +1454,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             chunk_size=chunk_size,
             infer_common_schema=infer_common_schema,
             drop_null=drop_null,
+            add_tablenumber=add_tablenumber,
             data_type_cast_map=data_type_cast_map,
             **kwargs,
         ).result()
