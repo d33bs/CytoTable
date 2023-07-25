@@ -21,6 +21,10 @@ Convert
 
 |
 
+.. autofunction:: _gather_tablenumber
+
+|
+
 .. autofunction:: _get_join_chunks
 
 |
