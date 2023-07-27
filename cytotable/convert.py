@@ -126,6 +126,49 @@ def _prep_cast_column_data_types(
 
 
 @python_app
+def _remove_datasets_with_no_image_tbl(
+    sources: Dict[str, List[Dict[str, Any]]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Removes datasets which contain no image table reference.
+
+    Args:
+        sources: Dict[str, List[Dict[str, Any]]]
+            Contains metadata about data tables and related contents.
+
+    Returns:
+        List[Dict[str, Any]]
+            New source group with potentially filtered datasets.
+    """
+
+    from cloudpathlib import AnyPath
+
+    image_parent_tables = [
+        # create a data structure with the common parent for image table
+        # within each dataset.
+        str(source["source_path"].parent)
+        for source_group_name, source_group_vals in sources.items()
+        # use the image tables references only for the basis of the
+        # these calculations.
+        if any(
+            value in str(AnyPath(source_group_name).stem).lower()
+            for value in ["image", "per_image"]
+        )
+        for source in source_group_vals
+    ]
+
+    # return only those datasets with existing image parent paths
+    return {
+        source_group_name: [
+            source
+            for source in source_group_vals
+            if str(source["source_path"].parent) in image_parent_tables
+        ]
+        for source_group_name, source_group_vals in sources.items()
+    }
+
+
+@python_app
 def _set_tablenumber(
     sources: Dict[str, List[Dict[str, Any]]]
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -145,8 +188,6 @@ def _set_tablenumber(
         List[Dict[str, Any]]
             New source group with added TableNumber details.
     """
-
-    import logging
 
     from cloudpathlib import AnyPath
 
@@ -1116,6 +1157,11 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         if len(source_group_vals) > 0
     }
 
+    # remove datasets which contain no image tables
+    datasets_without_image_tbl_removed = _remove_datasets_with_no_image_tbl(
+        sources=invalid_files_dropped
+    ).result()
+
     # gather column names and types from source tables
     column_names_and_types_gathered = {
         source_group_name: [
@@ -1132,7 +1178,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             )
             for source in source_group_vals
         ]
-        for source_group_name, source_group_vals in invalid_files_dropped.items()
+        for source_group_name, source_group_vals in datasets_without_image_tbl_removed.items()
     }
 
     # add tablenumber details (providing existing if add_tablenumber == False)

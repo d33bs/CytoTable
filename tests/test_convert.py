@@ -1092,7 +1092,6 @@ def test_gather_tablenumber(
                 add_tablenumber=True,
             )
         )
-        print(test_table)
 
     # compare to see that we have a tablenumber key for each element and also
     # that we received the checksum values for the related tables
