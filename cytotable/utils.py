@@ -6,6 +6,7 @@ import logging
 import multiprocessing
 import os
 import pathlib
+import zlib
 from typing import Dict, Union, cast
 
 import duckdb
@@ -337,3 +338,36 @@ def _arrow_type_cast_if_specified(
 
     # else we retain the existing data field type
     return column
+
+
+def _gather_tablenumber_checksum(pathname: str, buffer_size: int = 65536) -> int:
+    """
+    Build and return a checksum for use as a unique identifier across datasets
+    referenced from cytominer-database:
+    https://github.com/cytomining/cytominer-database/blob/master/cytominer_database/ingest_variable_engine.py#L129
+
+    Args:
+        pathname: str:
+            A path to a file with which to generate the checksum on.
+        buffer_size: int:
+            Buffer size to use for reading data.
+
+    Returns:
+        int
+            an integer representing the checksum of the pathname file.
+    """
+
+    # open file
+    with open(str(pathname), "rb") as stream:
+        # begin result formation
+        result = zlib.crc32(bytes(0))
+        while True:
+            # read data from stream using buffer size
+            buffer = stream.read(buffer_size)
+            if not buffer:
+                # if we have no more data to use, break while loop
+                break
+            # use buffer read data to form checksum
+            result = zlib.crc32(buffer, result)
+
+    return result & 0xFFFFFFFF

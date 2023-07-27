@@ -126,24 +126,19 @@ def _prep_cast_column_data_types(
 
 
 @python_app
-def _gather_tablenumber(
-    source_group_name: str, source_group: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+def _set_tablenumber(
+    sources: Dict[str, List[Dict[str, Any]]]
+) -> Dict[str, List[Dict[str, Any]]]:
     """
     Gathers a "TableNumber" for the table which is a unique identifier intended
     to help differentiate between imagenumbers to create distinct results.
 
-    We use the following steps for this process:
-    1. Check if a TableNumber already exists.
-    - If it does, we return None (indicating no additional action necessary)
-    - If it does not, we proceed below.
-    2. Build a checksum based on the table data.
-    3. Return this checksum for later use.
+    Note:
+    - If using CSV data sources, the image.csv table is used for checksum.
+    - If using SQLite data sources, the entire SQLite database is used for checksum.
 
     Args:
-        source_group_name: str
-            Name of the source group (for ex. compartment or metadata table name)
-        source_group: List[Dict[str, Any]]
+        sources: Dict[str, List[Dict[str, Any]]]
             Contains metadata about data tables and related contents.
 
     Returns:
@@ -151,44 +146,40 @@ def _gather_tablenumber(
             New source group with added TableNumber details.
     """
 
-    import zlib
+    import logging
 
     from cloudpathlib import AnyPath
 
-    from cytotable.utils import _duckdb_reader
+    from cytotable.utils import _gather_tablenumber_checksum
 
-    BUFFER_SIZE = 65536
+    # gather the image table from the source_group
+    tablenumber_table = {
+        # create a data structure with the common parent for each dataset
+        # and the calculated checksum from the image table
+        str(source["source_path"].parent): _gather_tablenumber_checksum(
+            source["source_path"]
+        )
+        for source_group_name, source_group_vals in sources.items()
+        # use the image tables references only for the basis of the
+        # these calculations.
+        if any(
+            value in str(AnyPath(source_group_name).stem).lower()
+            for value in ["image", "per_image"]
+        )
+        for source in source_group_vals
+    }
 
-    # select column names from table
-    if str(AnyPath(source["source_path"]).suffix).lower() == ".csv":
-        query = f"""
-            SELECT *
-            FROM read_csv_auto('{str(source["source_path"])}')
-            LIMIT 1
-            """
-
-    elif str(AnyPath(source["source_path"]).suffix).lower() == ".sqlite":
-        query = f"""
-            SELECT *
-            FROM sqlite_scan('{str(source["source_path"])}', '{str(source["table_name"])}')
-            LIMIT 1
-            """
-    # determine if TableNumber is already in the result
-    if "TableNumber" in _duckdb_reader().execute(query).arrow().column_names:
-        return None
-
-    # build and return a checksum
-    # referenced from cytominer-database:
-    # https://github.com/cytomining/cytominer-database/blob/master/cytominer_database/ingest_variable_engine.py#L129
-    with open(str(source["source_path"]), "rb") as stream:
-        result = zlib.crc32(bytes(0))
-        while True:
-            buffer = stream.read(BUFFER_SIZE)
-            if not buffer:
-                break
-            result = zlib.crc32(buffer, result)
-
-    return result & 0xFFFFFFFF
+    # return a modified sources data structure with the table number added
+    return {
+        source_group_name: [
+            dict(
+                source,
+                **{"tablenumber": tablenumber_table[str(source["source_path"].parent)]},
+            )
+            for source in source_group_vals
+        ]
+        for source_group_name, source_group_vals in sources.items()
+    }
 
 
 @python_app
@@ -1144,16 +1135,10 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         for source_group_name, source_group_vals in invalid_files_dropped.items()
     }
 
-    # add tablenumber details (providing a placeholder if add_tablenumber == False)
-    tablenumber_prepared = {
-        source_group_name: _gather_tablenumber(
-            source_group=source_group_vals,
-            source_group_name=source_group_name,
-        ).result()
-        # only add the tablenumber if parameter tells us so
-        if add_tablenumber else source_group_vals
-        for source_group_name, source_group_vals in column_names_and_types_gathered.items()
-    }
+    # add tablenumber details (providing existing if add_tablenumber == False)
+    tablenumber_prepared = _set_tablenumber(
+        sources=column_names_and_types_gathered
+    ).result()
 
     results = {
         source_group_name: [

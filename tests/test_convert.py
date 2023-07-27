@@ -23,7 +23,6 @@ from pycytominer.cyto_utils.cells import SingleCells
 from cytotable.convert import (
     _concat_join_sources,
     _concat_source_group,
-    _gather_tablenumber,
     _get_join_chunks,
     _infer_source_group_common_schema,
     _join_source_chunk,
@@ -1071,31 +1070,31 @@ def test_convert_hte_cellprofiler_csv(
 
 
 def test_gather_tablenumber(
-    load_parsl: None, example_local_sources: Dict[str, List[Dict[str, Any]]]
+    load_parsl: None,
+    get_tempdir: str,
+    data_dirs_cytominerdatabase: List[str],
 ):
     """
     Tests _gather_tablenumber
     """
 
-    tablenumber_prepared = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "tablenumber": _gather_tablenumber(  # pylint: disable=no-member
-                        source=source,
-                        source_group_name=source_group_name,
-                    ).result()
-                },
+    for cytominerdatabase_dir in data_dirs_cytominerdatabase:
+        test_table = parquet.read_table(
+            source=convert(
+                source_path=cytominerdatabase_dir,
+                dest_path=(
+                    f"{get_tempdir}/{pathlib.Path(cytominerdatabase_dir).name}.test_table.parquet"
+                ),
+                dest_datatype="parquet",
+                source_datatype="csv",
+                join=True,
+                drop_null=False,
+                add_tablenumber=True,
             )
-            for source in source_group_vals
-        ]
-        for source_group_name, source_group_vals in example_local_sources.items()
-    }
+        )
+        print(test_table)
 
     # compare to see that we have a tablenumber key for each element and also
     # that we received the checksum values for the related tables
-    assert [
-        elem["tablenumber"]
-        for elem in list(itertools.chain(*list(tablenumber_prepared.values())))
-    ] == [782642759, 2915137387, 2213917770, 744364272, 3277408204]
+    # print(list(itertools.chain(*list(tablenumber_prepared.values()))))
+    assert False
