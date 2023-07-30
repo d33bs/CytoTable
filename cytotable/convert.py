@@ -269,6 +269,9 @@ def _source_chunk_to_parquet(
 
     result_filepath = f"{result_filepath_base}-{offset}.parquet"
 
+    import time
+
+    time.sleep(10)
     # attempt to read the data to parquet from duckdb
     # with exception handling to read mixed-type data
     # using sqlite3 and special utility function
@@ -1080,7 +1083,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 offset=offset,
                                 dest_path=dest_path,
                                 data_type_cast_map=data_type_cast_map,
-                            ).result(),
+                            ),
                             source_group_name=source_group_name,
                             identifying_columns=identifying_columns,
                             metadata=metadata,
