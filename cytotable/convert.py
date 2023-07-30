@@ -271,7 +271,7 @@ def _source_chunk_to_parquet(
 
     import time
 
-    time.sleep(10)
+    time.sleep(1)
     # attempt to read the data to parquet from duckdb
     # with exception handling to read mixed-type data
     # using sqlite3 and special utility function
