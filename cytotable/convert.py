@@ -272,7 +272,7 @@ def _source_chunk_to_parquet(
 
     import time
 
-    time.sleep(1.5)
+    time.sleep(1)
     # attempt to read the data to parquet from duckdb
     # with exception handling to read mixed-type data
     # using sqlite3 and special utility function
@@ -305,6 +305,7 @@ def _source_chunk_to_parquet(
                 offset=offset,
                 result_filepath=result_filepath,
             )
+    time.sleep(1)
 
     # return the filepath for the chunked output file
     return result_filepath
