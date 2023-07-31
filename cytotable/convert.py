@@ -237,6 +237,7 @@ def _source_chunk_to_parquet(
     import pathlib
 
     import duckdb
+    import pyarrow.parquet as parquet
     from cloudpathlib import AnyPath
 
     from cytotable.utils import _duckdb_reader, _sqlite_mixed_type_query_to_parquet
@@ -276,16 +277,18 @@ def _source_chunk_to_parquet(
     # with exception handling to read mixed-type data
     # using sqlite3 and special utility function
     try:
-        # isolate using new connection to read data with chunk size + offset
-        # and export directly to parquet via duckdb (avoiding need to return data to python)
-        _duckdb_reader().execute(
-            f"""
-            COPY (
+        # extract data using new connection to read data with chunk size + offset
+        # and export to arrow, writing the result using pyarrow
+        parquet.write_table(
+            table=_duckdb_reader()
+            .execute(
+                f"""
                 {base_query}
                 LIMIT {chunk_size} OFFSET {offset}
-            ) TO '{result_filepath}'
-            (FORMAT PARQUET);
-            """
+                """
+            )
+            .arrow(),
+            where=result_filepath,
         )
     except duckdb.Error as e:
         # if we see a mismatched type error
