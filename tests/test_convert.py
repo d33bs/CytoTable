@@ -585,6 +585,7 @@ def test_convert_s3_path_sqlite(
             chunk_size=100,
             preset="cellprofiler_sqlite_pycytominer",
             endpoint_url=example_s3_endpoint,
+            local_cache_dir=f"{get_tempdir}/sqlite_s3_cache/1",
         )
     )
 
@@ -600,6 +601,7 @@ def test_convert_s3_path_sqlite(
             chunk_size=100,
             preset="cellprofiler_sqlite_pycytominer",
             endpoint_url=example_s3_endpoint,
+            local_cache_dir=f"{get_tempdir}/sqlite_s3_cache/2",
         )
     )
 
