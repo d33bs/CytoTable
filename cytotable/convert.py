@@ -305,7 +305,17 @@ def _source_chunk_to_parquet(
                 offset=offset,
                 result_filepath=result_filepath,
             )
-    time.sleep(1.1)
+        else:
+            raise
+
+    if not pathlib.Path(result_filepath).exists():
+        print(f"UNABLE TO FIND {result_filepath}")
+        while True:
+            if pathlib.Path(result_filepath).exists():
+                break
+
+            time.sleep(1.1)
+            print(f"WAITING FOR: {result_filepath}")
 
     # return the filepath for the chunked output file
     return result_filepath
