@@ -1107,23 +1107,59 @@ def test_gather_tablenumber(
     load_parsl: None,
     fx_tempdir: str,
     data_dirs_cytominerdatabase: List[str],
+    cytominerdatabase_to_manual_join_parquet: List[str],
 ):
     """
     Tests _gather_tablenumber
     """
 
-    for cytominerdatabase_dir in data_dirs_cytominerdatabase:
+    for unprocessed_cytominerdatabase, processed_cytominerdatabase in zip(
+        data_dirs_cytominerdatabase, cytominerdatabase_to_manual_join_parquet
+    ):
         test_table = parquet.read_table(
             source=convert(
-                source_path=cytominerdatabase_dir,
+                source_path=unprocessed_cytominerdatabase,
                 dest_path=(
-                    f"{fx_tempdir}/{pathlib.Path(cytominerdatabase_dir).name}.test_table.parquet"
+                    f"{fx_tempdir}/{pathlib.Path(unprocessed_cytominerdatabase).name}.test_table.parquet"
                 ),
                 dest_datatype="parquet",
                 source_datatype="csv",
                 join=True,
-                drop_null=False,
+                joins="""
+                    WITH Image_Filtered AS (
+                        SELECT
+                            Metadata_TableNumber,
+                            Metadata_ImageNumber
+                        FROM
+                            read_parquet('image.parquet')
+                        )
+                    SELECT
+                        *
+                    FROM
+                        Image_Filtered AS image
+                    LEFT JOIN read_parquet('cytoplasm.parquet') AS cytoplasm ON
+                        cytoplasm.Metadata_TableNumber = image.Metadata_TableNumber
+                        AND cytoplasm.Metadata_ImageNumber = image.Metadata_ImageNumber
+                    LEFT JOIN read_parquet('cells.parquet') AS cells ON
+                        cells.Metadata_TableNumber = cells.Metadata_TableNumber
+                        AND cells.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
+                        AND cells.Cells_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Cells
+                    LEFT JOIN read_parquet('nuclei.parquet') AS nuclei ON
+                        nuclei.Metadata_TableNumber = nuclei.Metadata_TableNumber
+                        AND nuclei.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
+                        AND nuclei.Nuclei_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Nuclei
+                """,
                 add_tablenumber=True,
+                preset="cell-health-cellprofiler-to-cytominer-database",
+            )
+        )
+        control_table = parquet.read_table(source=processed_cytominerdatabase)
+
+        assert test_table.sort_by(
+            [(name, "ascending") for name in test_table.column_names]
+        ).equals(
+            control_table.sort_by(
+                [(name, "ascending") for name in control_table.column_names]
             )
         )
 

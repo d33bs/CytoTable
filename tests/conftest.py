@@ -146,11 +146,67 @@ def cytominerdatabase_to_pycytominer_merge_single_cells_parquet(
                 strata=["Metadata_Well"],
                 image_cols=["TableNumber", "ImageNumber"],
             ).merge_single_cells(
-                sc_output_file=f"{fx_tempdir}/{pathlib.Path(sqlite_file).name}.parquet",
+                sc_output_file=f"{fx_tempdir}/pycytominer.{pathlib.Path(sqlite_file).name}.parquet",
                 output_type="parquet",
                 join_on=["Image_Metadata_Well"],
             )
         )
+
+    return output_paths
+
+
+@pytest.fixture()
+def cytominerdatabase_to_manual_join_parquet(
+    fx_tempdir: str,
+    cytominerdatabase_sqlite: List[str],
+) -> List[str]:
+    """
+    Processed cytominer-database test sqlite data as
+    pycytominer merged single cell parquet files
+    """
+
+    output_paths = []
+    for sqlite_file in cytominerdatabase_sqlite:
+        destination_path = (
+            f"{fx_tempdir}/manual_join.{pathlib.Path(sqlite_file).name}.parquet"
+        )
+        (
+            pd.read_sql(
+                sql="""
+                SELECT *
+                FROM Image image
+                LEFT JOIN Cytoplasm cytoplasm ON
+                    cytoplasm.ImageNumber = image.ImageNumber
+                    AND cytoplasm.TableNumber = image.TableNumber
+                LEFT JOIN Cells cells ON
+                    cells.ImageNumber = cytoplasm.ImageNumber
+                    AND cells.TableNumber = cytoplasm.TableNumber
+                    AND cells.Cells_Number_Object_Number = cytoplasm.Cytoplasm_Parent_Cells
+                LEFT JOIN Nuclei nuclei ON
+                    nuclei.ImageNumber = cytoplasm.ImageNumber
+                    AND nuclei.TableNumber = cytoplasm.TableNumber
+                    AND nuclei.Nuclei_Number_Object_Number = cytoplasm.Cytoplasm_Parent_Nuclei
+                """,
+                con=sqlite_file,
+            )
+            # replacing 'nan' strings with None
+            .replace(to_replace="nan", value=None)
+            # renaming columns as appropriate
+            .rename(
+                columns={
+                    "ImageNumber": "Metadata_ImageNumber",
+                    "TableNumber": "Metadata_TableNumber",
+                    "Cytoplasm_Parent_Cells": "Metadata_Cytoplasm_Parent_Cells",
+                    "Cytoplasm_Parent_Nuclei": "Metadata_Cytoplasm_Parent_Nuclei",
+                }
+                # drop generic objectnumber column gathered from each compartment
+                # (we'll rely on the compartment prefixed name instead for comparisons)
+            )
+            .drop(columns="ObjectNumber")
+            .to_parquet(destination_path)
+        )
+
+        output_paths.append(destination_path)
 
     return output_paths
 
