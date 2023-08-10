@@ -27,12 +27,53 @@ MAX_THREADS = (
     else int(cast(int, os.environ.get("CYTOTABLE_MAX_THREADS")))
 )
 
-DATA_TYPE_SYNONYMS = {
+DDB_DATA_TYPE_SYNONYMS = {
     "real": ["float32", "float4", "float"],
     "double": ["float64", "float8", "numeric", "decimal"],
     "integer": ["int32", "int4", "int", "signed"],
     "bigint": ["int64", "int8", "long"],
 }
+
+# A reference dictionary for SQLite affinity and storage class types
+# See more here: https://www.sqlite.org/datatype3.html#affinity_name_examples
+SQLITE_AFFINITY_DATA_TYPE_SYNONYMS = {
+    "integer": [
+        "int",
+        "integer",
+        "tinyint",
+        "smallint",
+        "mediumint",
+        "bigint",
+        "unsigned big int",
+        "int2",
+        "int8",
+    ],
+    "text": [
+        "character",
+        "varchar",
+        "varying character",
+        "nchar",
+        "native character",
+        "nvarchar",
+        "text",
+        "clob",
+    ],
+    "blob": ["blob"],
+    "real": [
+        "real",
+        "double",
+        "double precision",
+        "float",
+    ],
+    "numeric": [
+        "numeric",
+        "decimal",
+        "boolean",
+        "date",
+        "datetime",
+    ],
+}
+
 
 # reference the original init
 original_init = AppBase.__init__
@@ -163,12 +204,11 @@ def _sqlite_mixed_type_query_to_parquet(
     table_name: str,
     chunk_size: int,
     offset: int,
-    result_filepath: str,
 ) -> str:
     """
     Performs SQLite table data extraction where one or many
     columns include data values of potentially mismatched type
-    such that the data may be exported to Arrow and a Parquet file.
+    such that the data may be exported to Arrow for later use.
 
     Args:
         source_path: str:
@@ -179,17 +219,17 @@ def _sqlite_mixed_type_query_to_parquet(
             Row count to use for chunked output.
         offset: int:
             The offset for chunking the data from source.
-        dest_path: str:
-            Path to store the output data.
 
     Returns:
-        str:
-           The resulting filepath for the table exported to parquet.
+        pyarrow.Table:
+           The resulting arrow table for the data
     """
     import sqlite3
 
     import pyarrow as pa
-    import pyarrow.parquet as parquet
+
+    from cytotable.exceptions import DatatypeException
+    from cytotable.utils import SQLITE_AFFINITY_DATA_TYPE_SYNONYMS
 
     # open sqlite3 connection
     with sqlite3.connect(source_path) as conn:
@@ -212,12 +252,30 @@ def _sqlite_mixed_type_query_to_parquet(
             for row in cursor.fetchall()
         ]
 
+        def _sqlite_affinity_data_type_lookup(col_type: str) -> str:
+            # seek the translated type from SQLITE_AFFINITY_DATA_TYPE_SYNONYMS
+            translated_type = [
+                key
+                for key, values in SQLITE_AFFINITY_DATA_TYPE_SYNONYMS.items()
+                if col_type in values
+            ]
+
+            # if we're unable to find a synonym for the type, raise an error
+            if not translated_type:
+                raise DatatypeException(
+                    f"Unable to find SQLite data type synonym for {col_type}."
+                )
+
+            # return the translated type for use in SQLite
+            return translated_type[0]
+
         # create cases for mixed-type handling in each column discovered above
         query_parts = [
             f"""
             CASE
                 /* when the storage class type doesn't match the column, return nulltype */
-                WHEN typeof({col['column_name']}) != '{col['column_type'].lower()}' THEN NULL
+                WHEN typeof({col['column_name']}) !=
+                '{_sqlite_affinity_data_type_lookup(col['column_type'].lower())}' THEN NULL
                 /* else, return the normal value */
                 ELSE {col['column_name']}
             END AS {col['column_name']}
@@ -235,14 +293,8 @@ def _sqlite_mixed_type_query_to_parquet(
             for row in cursor.fetchall()
         ]
 
-    # write results to a parquet file
-    parquet.write_table(
-        table=pa.Table.from_pylist(results),
-        where=result_filepath,
-    )
-
-    # return filepath
-    return result_filepath
+    # return arrow table with results
+    return pa.Table.from_pylist(results)
 
 
 def _cache_cloudpath_to_local(path: Union[str, AnyPath]) -> pathlib.Path:
@@ -309,7 +361,7 @@ def _arrow_type_cast_if_specified(
             "column_name": column["column_name"],
             "column_dtype": [
                 key
-                for key, value in DATA_TYPE_SYNONYMS.items()
+                for key, value in DDB_DATA_TYPE_SYNONYMS.items()
                 if data_type_cast_map["float"] in value
             ][0],
         }
@@ -331,7 +383,7 @@ def _arrow_type_cast_if_specified(
             "column_name": column["column_name"],
             "column_dtype": [
                 key
-                for key, value in DATA_TYPE_SYNONYMS.items()
+                for key, value in DDB_DATA_TYPE_SYNONYMS.items()
                 if data_type_cast_map["integer"] in value
             ][0],
         }
