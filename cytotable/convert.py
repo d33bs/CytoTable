@@ -208,7 +208,7 @@ def _remove_datasets_with_no_image_tbl(
 
 @python_app
 def _set_tablenumber(
-    sources: Dict[str, List[Dict[str, Any]]]
+    sources: Dict[str, List[Dict[str, Any]]], add_tablenumber: bool
 ) -> Dict[str, List[Dict[str, Any]]]:
     """
     Gathers a "TableNumber" for the table which is a unique identifier intended
@@ -221,6 +221,9 @@ def _set_tablenumber(
     Args:
         sources: Dict[str, List[Dict[str, Any]]]
             Contains metadata about data tables and related contents.
+        add_tablenumber: bool
+            Whether to add a calculated tablenumber.
+            Note: when False, adds None as the tablenumber
 
     Returns:
         List[Dict[str, Any]]
@@ -230,6 +233,21 @@ def _set_tablenumber(
     from cloudpathlib import AnyPath
 
     from cytotable.utils import _gather_tablenumber_checksum
+
+    # if we're configured not to add tablenumber, add None
+    if not add_tablenumber:
+        return {
+            source_group_name: [
+                dict(
+                    source,
+                    **{
+                        "tablenumber": None,
+                    },
+                )
+                for source in source_group_vals
+            ]
+            for source_group_name, source_group_vals in sources.items()
+        }
 
     # gather the image table from the source_group
     tablenumber_table = {
@@ -1201,10 +1219,12 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         if len(source_group_vals) > 0
     }
 
-    # remove datasets which contain no image tables
-    datasets_without_image_tbl_removed = _remove_datasets_with_no_image_tbl(
-        sources=invalid_files_dropped
-    ).result()
+    # remove datasets which contain no image tables if we're adding tablenumber
+    datasets_without_image_tbl_removed = (
+        _remove_datasets_with_no_image_tbl(sources=invalid_files_dropped).result()
+        if add_tablenumber
+        else invalid_files_dropped
+    )
 
     # gather column names and types from source tables
     column_names_and_types_gathered = {
@@ -1225,9 +1245,9 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         for source_group_name, source_group_vals in datasets_without_image_tbl_removed.items()
     }
 
-    # add tablenumber details (providing existing if add_tablenumber == False)
+    # add tablenumber details, appending None if not add_tablenumber
     tablenumber_prepared = _set_tablenumber(
-        sources=column_names_and_types_gathered
+        sources=column_names_and_types_gathered, add_tablenumber=add_tablenumber
     ).result()
 
     results = {
@@ -1347,7 +1367,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
     chunk_size: Optional[int] = None,
     infer_common_schema: bool = True,
     drop_null: bool = False,
-    add_tablenumber: bool = True,
+    add_tablenumber: bool = False,
     data_type_cast_map: Optional[Dict[str, str]] = None,
     preset: Optional[str] = "cellprofiler_csv",
     parsl_config: Optional[parsl.Config] = None,
