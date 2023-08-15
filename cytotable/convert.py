@@ -464,6 +464,7 @@ def _source_chunk_to_parquet(
                     table_name=str(source["table_name"]),
                     chunk_size=chunk_size,
                     offset=offset,
+                    tablenumber=source["tablenumber"],
                 ),
                 where=result_filepath,
             )

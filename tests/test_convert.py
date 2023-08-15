@@ -1155,6 +1155,11 @@ def test_gather_tablenumber(
         )
         control_table = parquet.read_table(source=processed_cytominerdatabase)
 
+        import pyarrow.compute as pc
+
+        print(pc.unique(test_table["Metadata_TableNumber"]))
+        print(pc.unique(control_table["Metadata_TableNumber"]))
+
         assert test_table.sort_by(
             [(name, "ascending") for name in test_table.column_names]
         ).equals(

@@ -170,19 +170,46 @@ def cytominerdatabase_to_manual_join_parquet(
         destination_path = (
             f"{fx_tempdir}/manual_join.{pathlib.Path(sqlite_file).name}.parquet"
         )
-        (
+        df_cytominerdatabase = (
             pd.read_sql(
                 sql="""
+                WITH Image_Filtered AS (
+                    SELECT
+                        TableNumber,
+                        ImageNumber
+                    FROM
+                        Image
+                ),
+                /* gather unique objectnumber column names from each
+                compartment so as to retain differentiation */
+                Cytoplasm_renamed AS (
+                    SELECT
+                        ObjectNumber AS Cytoplasm_ObjectNumber,
+                        *
+                    FROM Cytoplasm
+                ),
+                Cells_renamed AS (
+                    SELECT
+                        ObjectNumber AS Cells_ObjectNumber,
+                        *
+                    FROM Cells
+                ),
+                Nuclei_renamed AS (
+                    SELECT
+                        ObjectNumber AS Nuclei_ObjectNumber,
+                        *
+                    FROM Nuclei
+                )
                 SELECT *
-                FROM Image image
-                LEFT JOIN Cytoplasm cytoplasm ON
+                FROM Image_Filtered image
+                LEFT JOIN Cytoplasm_renamed cytoplasm ON
                     cytoplasm.ImageNumber = image.ImageNumber
                     AND cytoplasm.TableNumber = image.TableNumber
-                LEFT JOIN Cells cells ON
+                LEFT JOIN Cells_renamed cells ON
                     cells.ImageNumber = cytoplasm.ImageNumber
                     AND cells.TableNumber = cytoplasm.TableNumber
                     AND cells.Cells_Number_Object_Number = cytoplasm.Cytoplasm_Parent_Cells
-                LEFT JOIN Nuclei nuclei ON
+                LEFT JOIN Nuclei_renamed nuclei ON
                     nuclei.ImageNumber = cytoplasm.ImageNumber
                     AND nuclei.TableNumber = cytoplasm.TableNumber
                     AND nuclei.Nuclei_Number_Object_Number = cytoplasm.Cytoplasm_Parent_Nuclei
@@ -198,13 +225,17 @@ def cytominerdatabase_to_manual_join_parquet(
                     "TableNumber": "Metadata_TableNumber",
                     "Cytoplasm_Parent_Cells": "Metadata_Cytoplasm_Parent_Cells",
                     "Cytoplasm_Parent_Nuclei": "Metadata_Cytoplasm_Parent_Nuclei",
+                    "Cells_Parent_Nuclei": "Metadata_Cells_Parent_Nuclei",
                 }
                 # drop generic objectnumber column gathered from each compartment
                 # (we'll rely on the compartment prefixed name instead for comparisons)
-            )
-            .drop(columns="ObjectNumber")
-            .to_parquet(destination_path)
+            ).drop(columns="ObjectNumber")
         )
+
+        # sort the columns and export to parquet
+        df_cytominerdatabase[
+            sorted(sorted(df_cytominerdatabase.columns.tolist()), key=_column_sort)
+        ].to_parquet(destination_path)
 
         output_paths.append(destination_path)
 

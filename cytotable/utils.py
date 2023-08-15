@@ -7,7 +7,7 @@ import multiprocessing
 import os
 import pathlib
 import zlib
-from typing import Dict, Union, cast
+from typing import Dict, Optional, Union, cast
 
 import duckdb
 import pyarrow as pa
@@ -204,6 +204,7 @@ def _sqlite_mixed_type_query_to_parquet(
     table_name: str,
     chunk_size: int,
     offset: int,
+    tablenumber: Optional[int] = None,
 ) -> str:
     """
     Performs SQLite table data extraction where one or many
@@ -219,6 +220,9 @@ def _sqlite_mixed_type_query_to_parquet(
             Row count to use for chunked output.
         offset: int:
             The offset for chunking the data from source.
+        tablenumber: Optional[int] = None:
+            Optional tablenumber to include with exported data in order
+            to differentiate between similar image numbers across plates.
 
     Returns:
         pyarrow.Table:
@@ -269,9 +273,19 @@ def _sqlite_mixed_type_query_to_parquet(
             # return the translated type for use in SQLite
             return translated_type[0]
 
+        # build tablenumber segment addition (if necessary)
+        tablenumber_sql = (
+            # to become tablenumber in sql select later with integer
+            f"CAST({tablenumber} AS INTEGER) as TableNumber, "
+            if tablenumber is not None
+            # if we don't have a tablenumber value, don't introduce the column
+            else ""
+        )
+
         # create cases for mixed-type handling in each column discovered above
-        query_parts = [
-            f"""
+        query_parts = tablenumber_sql + ", ".join(
+            [
+                f"""
             CASE
                 /* when the storage class type doesn't match the column, return nulltype */
                 WHEN typeof({col['column_name']}) !=
@@ -280,12 +294,13 @@ def _sqlite_mixed_type_query_to_parquet(
                 ELSE {col['column_name']}
             END AS {col['column_name']}
             """
-            for col in column_info
-        ]
+                for col in column_info
+            ]
+        )
 
         # perform the select using the cases built above and using chunksize + offset
         cursor.execute(
-            f'SELECT {", ".join(query_parts)} FROM {table_name} LIMIT {chunk_size} OFFSET {offset};'
+            f"SELECT {query_parts} FROM {table_name} LIMIT {chunk_size} OFFSET {offset};"
         )
         # collect the results and include the column name with values
         results = [
