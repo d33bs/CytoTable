@@ -398,5 +398,10 @@ def set_pyarrow_memory_allocator() -> None:
 
     import pyarrow as pa
 
+    # check whether the memory allocation is set to jemalloc
     if pa.default_memory_pool().backend_name != "jemalloc":
+        # set the jemalloc memory allocator for pyarrow
         pa.set_memory_pool(pa.jemalloc_memory_pool())
+
+    # set the decay to 0
+    pa.jemalloc_set_decay_ms(0)
