@@ -791,6 +791,8 @@ def _join_source_chunk(
         where=result_file_path,
     )
 
+    del result
+
     return result_file_path
 
 
