@@ -1052,6 +1052,39 @@ def test_sqlite_mixed_type_query_to_parquet(
     }
 
 
+def test_parsl_config_reload(
+    fx_tempdir: str,
+    data_dir_cytominerdatabase: str,
+):
+    """
+    Tests how Parsl htex configurations are reloaded by CytoTable.
+    """
+
+    local_htex = Config(
+        executors=[HighThroughputExecutor()],
+    )
+
+    orig_source = f"{data_dir_cytominerdatabase}/Cell-Health/test-SQ00014613.sqlite"
+    new_destination = f"{fx_tempdir}/test-SQ00014613-2.sqlite"
+    copy(
+        orig_source,
+        new_destination,
+    )
+
+    for source in [
+        orig_source,
+        new_destination,
+    ]:
+        convert(
+            source_path=source,
+            dest_path=f"{fx_tempdir}/parsl-config-load-test",
+            dest_datatype="parquet",
+            source_datatype="sqlite",
+            preset="cell-health-cellprofiler-to-cytominer-database",
+            parsl_config=local_htex,
+        )
+
+
 def test_convert_hte_cellprofiler_csv(
     fx_tempdir: str,
     data_dir_cellprofiler: str,
