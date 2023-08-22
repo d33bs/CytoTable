@@ -3,7 +3,7 @@ name: run tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, incomplete-read-test]
   pull_request:
     branches: [main]
 
