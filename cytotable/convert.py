@@ -1358,6 +1358,9 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
 
     # attempt to load parsl configuration
     try:
+        # clear any existing configuration
+        parsl.clear()
+
         # if we don't have a parsl configuration provided, load the default
         if parsl_config is None:
             parsl.load(_default_parsl_config())
