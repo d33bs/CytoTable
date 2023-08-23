@@ -194,6 +194,13 @@ def _duckdb_reader() -> duckdb.DuckDBPyConnection:
         PRAGMA preserve_insertion_order=FALSE;
 
         /*
+        Allow unordered results for performance increase possibilities
+        See the following for more information:
+        https://duckdb.org/docs/sql/configuration#configuration-reference
+        */
+        PRAGMA memory_limit='4GB';
+
+        /*
         Allow parallel csv reads for performance increase possibilities
         See the following for more information:
         https://duckdb.org/docs/sql/configuration#configuration-reference
