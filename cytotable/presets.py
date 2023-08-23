@@ -39,7 +39,10 @@ config = {
                     read_parquet('image.parquet')
                 )
             SELECT
-                *
+                image.*,
+                cytoplasm.* EXCLUDE(Metadata_ImageNumber, Metadata_ObjectNumber),
+                cells.* EXCLUDE(Metadata_ImageNumber, Metadata_ObjectNumber),
+                nuclei.* EXCLUDE(Metadata_ImageNumber, Metadata_ObjectNumber)
             FROM
                 Image_Filtered AS image
             LEFT JOIN read_parquet('cytoplasm.parquet') AS cytoplasm ON
@@ -87,7 +90,10 @@ config = {
                     read_parquet('per_image.parquet')
                 )
             SELECT
-                *
+                per_image.*,
+                per_cytoplasm.* EXCLUDE(Metadata_ImageNumber),
+                per_cells.* EXCLUDE(Metadata_ImageNumber),
+                per_nuclei.* EXCLUDE(Metadata_ImageNumber)
             FROM
                 Per_Image_Filtered AS per_image
             LEFT JOIN read_parquet('per_cytoplasm.parquet') AS per_cytoplasm ON
@@ -140,7 +146,10 @@ config = {
                     read_parquet('per_image.parquet')
                 )
             SELECT
-                *
+                per_image.*,
+                per_cytoplasm.* EXCLUDE(Metadata_ImageNumber),
+                per_cells.* EXCLUDE(Metadata_ImageNumber),
+                per_nuclei.* EXCLUDE(Metadata_ImageNumber)
             FROM
                 Per_Image_Filtered AS per_image
             LEFT JOIN read_parquet('per_cytoplasm.parquet') AS per_cytoplasm ON
@@ -196,7 +205,10 @@ config = {
                     read_parquet('image.parquet')
                 )
             SELECT
-                *
+                image.*,
+                cytoplasm.* EXCLUDE(Metadata_TableNumber, Metadata_ImageNumber),
+                cells.* EXCLUDE(Metadata_TableNumber, Metadata_ImageNumber),
+                nuclei.* EXCLUDE(Metadata_TableNumber, Metadata_ImageNumber)
             FROM
                 Image_Filtered AS image
             LEFT JOIN read_parquet('cytoplasm.parquet') AS cytoplasm ON

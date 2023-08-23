@@ -323,7 +323,10 @@ def fixture_cellprofiler_merged_examplehuman(
         .execute(
             """
             SELECT
-                *
+                /* note: we exclude the generic objectnumber reference
+                as it will have lost referential information on the table
+                it came from in the results. */
+                * EXCLUDE(Metadata_ObjectNumber)
             FROM
                 image_table AS image
             LEFT JOIN cytoplasm_table AS cytoplasm ON

@@ -338,7 +338,9 @@ def test_join_source_chunk(fx_tempdir: str):
         },
         dest_path=f"{fx_tempdir}/destination.parquet",
         joins=f"""
-            SELECT *
+            SELECT
+                example_a.*,
+                example_b.* EXCLUDE(id1, id2)
             FROM read_parquet('{fx_tempdir}/example_a_merged.parquet') as example_a
             JOIN read_parquet('{fx_tempdir}/example_b_merged.parquet') as example_b ON
                 example_b.id1 = example_a.id1
