@@ -1082,14 +1082,6 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     from cytotable.sources import _gather_sources
     from cytotable.utils import _expand_path
 
-    # gather sources to be processed
-    sources = _gather_sources(
-        source_path=source_path,
-        source_datatype=source_datatype,
-        targets=list(metadata) + list(compartments),
-        **kwargs,
-    ).result()
-
     # if we already have a file in dest_path, remove it
     if pathlib.Path(dest_path).is_file():
         pathlib.Path(dest_path).unlink()
@@ -1097,151 +1089,127 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     # expand the destination path
     expanded_dest_path = _expand_path(path=dest_path)
 
-    # prepare offsets for chunked data export from source tables
-    offsets_prepared = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "offsets": _get_table_chunk_offsets(
-                        source=source,
-                        chunk_size=chunk_size,
-                    ).result()
-                },
-            )
-            for source in source_group_vals
-        ]
-        for source_group_name, source_group_vals in sources.items()
-    }
-
-    # if offsets is none and we haven't halted, remove the file as there
-    # were input formatting errors which will create challenges downstream
-    invalid_files_dropped = {
-        source_group_name: [
-            # ensure we have offsets
-            source
-            for source in source_group_vals
-            if source["offsets"] is not None
-        ]
-        for source_group_name, source_group_vals in offsets_prepared.items()
-        # ensure we have source_groups with at least one source table
-        if len(source_group_vals) > 0
-    }
-
-    # gather column names and types from source tables
-    column_names_and_types_gathered = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "columns": _prep_cast_column_data_types(
-                        columns=_get_table_columns_and_types(
-                            source=source,
-                        ),
-                        data_type_cast_map=data_type_cast_map,
-                    ).result()
-                },
-            )
-            for source in source_group_vals
-        ]
-        for source_group_name, source_group_vals in invalid_files_dropped.items()
-    }
-
     results = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "table": [
-                        # perform column renaming and create potential return result
-                        _prepend_column_name(
-                            # perform chunked data export to parquet using offsets
-                            table_path=_source_chunk_to_parquet(
+        source_group_name: source_group_vals if not (concat or join)
+        # if concat or join, concat the source groups
+        # note: join implies a concat, but concat does not imply a join
+        # We concat to join in order to create a common schema for join work
+        # performed after concatenation.
+        else _concat_source_group(
+            source_group_name=source_group_name,
+            source_group=source_group_vals,
+            dest_path=expanded_dest_path,
+            # if we're concatting or joining and need to infer the common schema
+            common_schema=_infer_source_group_common_schema(
+                source_group=source_group_vals,
+                data_type_cast_map=data_type_cast_map,
+            ),
+        ).result()
+        for source_group_name, source_group_vals in {
+            source_group_name: [
+                {
+                    **source,
+                    **{
+                        "table": [
+                            # perform column renaming and create potential return result
+                            _prepend_column_name(
+                                # perform chunked data export to parquet using offsets
+                                table_path=_source_chunk_to_parquet(
+                                    source_group_name=source_group_name,
+                                    source=source,
+                                    chunk_size=chunk_size,
+                                    offset=offset,
+                                    dest_path=expanded_dest_path,
+                                    data_type_cast_map=data_type_cast_map,
+                                ),
                                 source_group_name=source_group_name,
-                                source=source,
-                                chunk_size=chunk_size,
-                                offset=offset,
-                                dest_path=expanded_dest_path,
+                                identifying_columns=identifying_columns,
+                                metadata=metadata,
+                                compartments=compartments,
+                            ).result()
+                            for offset in source["offsets"]
+                        ]
+                    },
+                }
+                for source in [
+                    {
+                        **source,
+                        **{
+                            # gather column names and types from source tables
+                            "columns": _prep_cast_column_data_types(
+                                columns=_get_table_columns_and_types(
+                                    source=source,
+                                ),
                                 data_type_cast_map=data_type_cast_map,
-                            ),
-                            source_group_name=source_group_name,
-                            identifying_columns=identifying_columns,
-                            metadata=metadata,
-                            compartments=compartments,
-                        ).result()
-                        for offset in source["offsets"]
+                            ).result()
+                        },
+                    }
+                    for source in [
+                        {
+                            **source,
+                            **{
+                                # prepare offsets for chunked data export from source tables
+                                "offsets": _get_table_chunk_offsets(
+                                    source=source,
+                                    chunk_size=chunk_size,
+                                ).result()
+                            },
+                        }
+                        for source in source_group_vals
                     ]
-                },
+                    # if offsets is none and we haven't halted, remove the file as there
+                    # were input formatting errors which will create challenges downstream
+                    if source["offsets"] is not None
+                ]
+            ]
+            for source_group_name, source_group_vals in (
+                # gather sources to be processed
+                _gather_sources(
+                    source_path=source_path,
+                    source_datatype=source_datatype,
+                    targets=list(metadata) + list(compartments),
+                    **kwargs,
+                )
             )
-            for source in source_group_vals
-        ]
-        for source_group_name, source_group_vals in column_names_and_types_gathered.items()
+            .result()
+            .items()
+            # ensure we have source_groups with at least one source table
+            if len(source_group_vals) > 0
+        }.items()
     }
-
-    # if we're concatting or joining and need to infer the common schema
-    if (concat or join) and infer_common_schema:
-        # create a common schema for concatenation work
-        common_schema_determined = {
-            source_group_name: {
-                "sources": source_group_vals,
-                "common_schema": _infer_source_group_common_schema(
-                    source_group=source_group_vals,
-                    data_type_cast_map=data_type_cast_map,
-                ),
-            }
-            for source_group_name, source_group_vals in results.items()
-        }
-
-    # if concat or join, concat the source groups
-    # note: join implies a concat, but concat does not imply a join
-    # We concat to join in order to create a common schema for join work
-    # performed after concatenation.
-    if concat or join:
-        # create a potential return result for concatenation output
-        results = {
-            source_group_name: _concat_source_group(
-                source_group_name=source_group_name,
-                source_group=source_group_vals["sources"],
-                dest_path=expanded_dest_path,
-                common_schema=source_group_vals["common_schema"],
-            ).result()
-            for source_group_name, source_group_vals in common_schema_determined.items()
-        }
 
     # conditional section for merging
     # note: join implies a concat, but concat does not imply a join
     if join:
-        # map joined results based on the join groups gathered above
-        # note: after mapping we end up with a list of strings (task returns str)
-        join_sources_result = [
-            _join_source_chunk(
-                # gather the result of concatted sources prior to
-                # join group merging as each mapped task run will need
-                # full concat results
-                sources=results,
-                dest_path=expanded_dest_path,
-                joins=joins,
-                # get merging chunks by join columns
-                join_group=join_group,
-                drop_null=drop_null,
-            ).result()
-            # create join group for querying the concatenated
-            # data in order to perform memory-safe joining
-            # per user chunk size specification.
-            for join_group in _get_join_chunks(
-                sources=results,
-                chunk_columns=chunk_columns,
-                chunk_size=chunk_size,
-                metadata=metadata,
-            ).result()
-        ]
-
         # concat our join chunks together as one cohesive dataset
         # return results in common format which includes metadata
         # for lineage and debugging
         results = _concat_join_sources(
             dest_path=expanded_dest_path,
-            join_sources=join_sources_result,
+            # map joined results based on the join groups gathered above
+            # note: after mapping we end up with a list of strings (task returns str)
+            join_sources=[
+                _join_source_chunk(
+                    # gather the result of concatted sources prior to
+                    # join group merging as each mapped task run will need
+                    # full concat results
+                    sources=results,
+                    dest_path=expanded_dest_path,
+                    joins=joins,
+                    # get merging chunks by join columns
+                    join_group=join_group,
+                    drop_null=drop_null,
+                ).result()
+                # create join group for querying the concatenated
+                # data in order to perform memory-safe joining
+                # per user chunk size specification.
+                for join_group in _get_join_chunks(
+                    sources=results,
+                    chunk_columns=chunk_columns,
+                    chunk_size=chunk_size,
+                    metadata=metadata,
+                ).result()
+            ],
             sources=results,
         ).result()
 
