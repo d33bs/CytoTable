@@ -1363,10 +1363,10 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
 
         # if we don't have a parsl configuration provided, load the default
         if parsl_config is None:
-            parsl.load(_default_parsl_config())
+            kernel = parsl.load(_default_parsl_config())
         else:
             # else we attempt to load the given parsl configuration
-            parsl.load(parsl_config)
+            kernel = parsl.load(parsl_config)
     except RuntimeError as runtime_exc:
         # catch cases where parsl has already been loaded and defer to
         # previously loaded configuration with a warning
@@ -1379,7 +1379,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
                 # clears the existing parsl configuration
                 parsl.clear()
                 # then load the supplied configuration
-                parsl.load(parsl_config)
+                kernel = parsl.load(parsl_config)
 
         # for other potential runtime errors besides config already being loaded
         else:
@@ -1435,5 +1435,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             data_type_cast_map=data_type_cast_map,
             **kwargs,
         ).result()
+
+    kernel.cleanup()
 
     return output
