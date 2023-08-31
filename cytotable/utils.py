@@ -6,10 +6,11 @@ import logging
 import multiprocessing
 import os
 import pathlib
-from typing import Any, Dict, Union, cast
+from typing import Dict, List, Optional, Union, cast
 
 import duckdb
 import parsl
+import pyarrow as pa
 from cloudpathlib import AnyPath, CloudPath
 from cloudpathlib.exceptions import InvalidPrefixError
 from parsl.app.app import AppBase
@@ -439,3 +440,79 @@ def _expand_path(
         modifed_path = modifed_path.expanduser()
 
     return modifed_path.resolve()
+
+
+def chunked_write_parquet_from_list_to_single_file(
+    source_paths: List[str],
+    dest_path: str,
+    chunk_size: int,
+    writer_schema: Optional[pa.schema] = None,
+) -> str:
+    """
+    Writes a single parquet file from a list of parquet files using
+    chunked operations so as to not exceed memory constraints.
+
+    Args:
+        source_paths: List[str]
+            A list of paths to parquet files.
+
+        dest_path: str
+            The destination path to write the file to.
+        chunk_size: int
+            The chunk size to use when reading the parquet files.
+
+    Returns:
+        str
+            A path to the destination file
+    """
+
+    import pathlib
+
+    import pyarrow as pa
+    import pyarrow.dataset as dataset
+    import pyarrow.parquet as parquet
+
+    writer_schema = (
+        parquet.read_schema(source_paths[0]) if writer_schema is None else writer_schema
+    )
+
+    # build a parquet file dataset which will be used to append files
+    # as a single concatted parquet file, referencing the first file's schema
+    # (all must be the same schema)
+    pq_dataset = pa.dataset.FileSystemDatasetFactory(
+        filesystem=pa.fs.LocalFileSystem(),
+        paths_or_selector=source_paths,
+        format=dataset.ParquetFileFormat(),
+    ).finish(schema=writer_schema)
+
+    # build a parquet file writer which will be used to append files
+    # as a single concatted parquet file, referencing the first file's schema
+    # (all must be the same schema)
+    with parquet.ParquetWriter(where=str(dest_path), schema=writer_schema) as writer:
+        row_count = pq_dataset.count_rows()
+
+        # write the single file using dataset "takes", which act as chunks
+        # of a whole using row index ranges to prevent memory overload.
+        for i in range(0, row_count, chunk_size):
+            writer.write_table(
+                table=pq_dataset.take(
+                    indices=list(
+                        range(
+                            i,
+                            # set the end of the range to be
+                            # start plus chunksize minus 1 if
+                            # we haven't yet exceeded the row_count
+                            # otherwise set the end to the row_count
+                            min(i + chunk_size, row_count),
+                            1,
+                        )
+                    )
+                )
+            )
+
+    # remove the file which was written in the concatted parquet file (we no longer need it)
+    for table_path in source_paths:
+        pathlib.Path(table_path).unlink()
+
+    # return the destination path for use downstream
+    return dest_path

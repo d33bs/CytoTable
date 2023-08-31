@@ -489,6 +489,7 @@ def _concat_source_group(
     source_group: List[Dict[str, Any]],
     dest_path: str = ".",
     common_schema: Optional[List[Tuple[str, str]]] = None,
+    chunk_size: int = 1000,
 ) -> List[Dict[str, Any]]:
     """
     Concatenate group of source data together as single file.
@@ -535,6 +536,9 @@ def _concat_source_group(
         common_schema: List[Tuple[str, str]] (Default value = None)
             Common schema to use for concatenation amongst arrow tables
             which may have slightly different but compatible schema.
+        chunk_size: int
+            Size of join chunks which is used to limit data size during join ops.
+
 
     Returns:
         List[Dict[str, Any]]
@@ -546,8 +550,7 @@ def _concat_source_group(
     import pyarrow as pa
     import pyarrow.parquet as parquet
 
-    from cytotable.exceptions import SchemaException
-    from cytotable.utils import CYTOTABLE_ARROW_USE_MEMORY_MAPPING
+    from cytotable.utils import chunked_write_parquet_from_list_to_single_file
 
     # check whether we already have a file as dest_path
     if pathlib.Path(dest_path).is_file():
@@ -567,7 +570,7 @@ def _concat_source_group(
     ]
 
     # build destination path for file to land
-    destination_path = pathlib.Path(
+    dest_path = pathlib.Path(
         (
             f"{dest_path}/{str(pathlib.Path(source_group_name).stem).lower()}/"
             f"{str(pathlib.Path(source_group_name).stem).lower()}.parquet"
@@ -575,55 +578,34 @@ def _concat_source_group(
     )
 
     # if there's already a file remove it
-    destination_path.unlink(missing_ok=True)
+    dest_path.unlink(missing_ok=True)
 
     # ensure the parent directories exist:
-    destination_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # build the schema for concatenation writer
-    writer_schema = pa.schema(common_schema)
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     # build a parquet file writer which will be used to append files
     # as a single concatted parquet file, referencing the first file's schema
     # (all must be the same schema)
-    with parquet.ParquetWriter(str(destination_path), writer_schema) as writer:
-        for source in source_group:
-            for table in [table for table in source["table"]]:
-                # if we haven't inferred the common schema
-                # check that our file matches the expected schema, otherwise raise an error
-                if common_schema is None and not writer_schema.equals(
-                    parquet.read_schema(table)
-                ):
-                    raise SchemaException(
-                        (
-                            f"Detected mismatching schema for target concatenation group members:"
-                            f" {str(source_group[0]['table'])} and {str(table)}"
-                        )
-                    )
+    chunked_write_parquet_from_list_to_single_file(
+        source_paths=[
+            str(table) for source in source_group for table in source["table"]
+        ],
+        dest_path=dest_path,
+        chunk_size=chunk_size,
+        writer_schema=pa.schema(common_schema),
+    )
 
-                # read the file from the list and write to the concatted parquet file
-                # note: we pass column order based on the first chunk file to help ensure schema
-                # compatibility for the writer
-                writer.write_table(
-                    parquet.read_table(
-                        table,
-                        schema=writer_schema,
-                        memory_map=CYTOTABLE_ARROW_USE_MEMORY_MAPPING,
-                    )
-                )
-                # remove the file which was written in the concatted parquet file (we no longer need it)
-                pathlib.Path(table).unlink()
-
-            # attempt to clean up dir containing original table(s) only if it's empty
-            try:
-                pathlib.Path(pathlib.Path(source["table"][0]).parent).rmdir()
-            except OSError as os_err:
-                # raise only if we don't have a dir not empty errno
-                if os_err.errno != 66:
-                    raise
+    for source in source_group:
+        # attempt to clean up dir containing original table(s) only if it's empty
+        try:
+            pathlib.Path(pathlib.Path(source["table"][0]).parent).rmdir()
+        except OSError as os_err:
+            # raise only if we don't have a dir not empty errno
+            if os_err.errno != 66:
+                raise
 
     # return the concatted parquet filename
-    concatted[0]["table"] = [destination_path]
+    concatted[0]["table"] = [dest_path]
 
     return concatted
 
@@ -808,6 +790,7 @@ def _concat_join_sources(
     sources: Dict[str, List[Dict[str, Any]]],
     dest_path: str,
     join_sources: List[str],
+    chunk_size: int = 1000,
 ) -> str:
     """
     Concatenate join sources from parquet-based chunks.
@@ -824,6 +807,8 @@ def _concat_join_sources(
         join_sources: List[str]:
             List of local filepath destination for join source chunks
             which will be concatenated.
+        chunk_size: int:
+            Size of chunks which is used to limit data size during parquet writer ops.
 
     Returns:
         str
@@ -833,9 +818,7 @@ def _concat_join_sources(
     import pathlib
     import shutil
 
-    import pyarrow.parquet as parquet
-
-    from cytotable.utils import CYTOTABLE_ARROW_USE_MEMORY_MAPPING
+    from cytotable.utils import chunked_write_parquet_from_list_to_single_file
 
     # remove the unjoined concatted compartments to prepare final dest_path usage
     # (we now have joined results)
@@ -851,38 +834,11 @@ def _concat_join_sources(
     # also remove any pre-existing files which may already be at file destination
     pathlib.Path(dest_path).unlink(missing_ok=True)
 
-    # write the concatted result as a parquet file
-    parquet.write_table(
-        table=pa.concat_tables(
-            tables=[
-                parquet.read_table(
-                    table_path, memory_map=CYTOTABLE_ARROW_USE_MEMORY_MAPPING
-                )
-                for table_path in join_sources
-            ]
-        ),
-        where=dest_path,
-    )
-
-    # build a parquet file writer which will be used to append files
-    # as a single concatted parquet file, referencing the first file's schema
-    # (all must be the same schema)
-    writer_schema = parquet.read_schema(join_sources[0])
-    with parquet.ParquetWriter(str(dest_path), writer_schema) as writer:
-        for table_path in join_sources:
-            writer.write_table(
-                parquet.read_table(
-                    table_path,
-                    schema=writer_schema,
-                    memory_map=CYTOTABLE_ARROW_USE_MEMORY_MAPPING,
-                )
-            )
-            # remove the file which was written in the concatted parquet file (we no longer need it)
-            pathlib.Path(table_path).unlink()
-
     # return modified sources format to indicate the final result
     # and retain the other source data for reference as needed
-    return dest_path
+    return chunked_write_parquet_from_list_to_single_file(
+        source_paths=join_sources, chunk_size=chunk_size, dest_path=dest_path
+    )
 
 
 @python_app
@@ -1204,6 +1160,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                 source_group=source_group_vals["sources"],
                 dest_path=expanded_dest_path,
                 common_schema=source_group_vals["common_schema"],
+                chunk_size=chunk_size,
             ).result()
             for source_group_name, source_group_vals in common_schema_determined.items()
         }
@@ -1243,6 +1200,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             dest_path=expanded_dest_path,
             join_sources=join_sources_result,
             sources=results,
+            chunk_size=chunk_size,
         ).result()
 
     # wrap the final result as a future and return
