@@ -311,18 +311,17 @@ def _source_chunk_to_parquet(
     # Attempt to read the data to parquet file
     # using duckdb for extraction and pyarrow for
     # writing data to a parquet file.
+    reader = _duckdb_reader()
     try:
         # read data with chunk size + offset
         # and export to parquet
         parquet.write_table(
-            table=_duckdb_reader()
-            .execute(
+            table=reader.execute(
                 f"""
                 {base_query}
                 LIMIT {chunk_size} OFFSET {offset}
                 """
-            )
-            .arrow(),
+            ).arrow(),
             where=result_filepath,
         )
     # Include exception handling to read mixed-type data
@@ -349,6 +348,8 @@ def _source_chunk_to_parquet(
             )
         else:
             raise
+
+    reader.close()
 
     # return the filepath for the chunked output file
     return result_filepath
