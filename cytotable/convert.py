@@ -79,12 +79,14 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
         # isolate using new connection to read data with chunk size + offset
         # and export directly to parquet via duckdb (avoiding need to return data to python)
         # perform the query and create a list of dictionaries with the column data for table
-        return (
-            _duckdb_reader()
-            .execute(select_query.replace("&select_source", select_source))
+        reader = _duckdb_reader()
+        result = (
+            reader.execute(select_query.replace("&select_source", select_source))
             .arrow()
             .to_pylist()
         )
+        reader.close()
+        return result
 
     except duckdb.Error as e:
         # if we see a mismatched type error
@@ -101,12 +103,14 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
                 # result from table
                 offset=0,
             )
-            return (
-                _duckdb_reader()
-                .execute(select_query.replace("&select_source", "arrow_data_tbl"))
+            reader = _duckdb_reader()
+            result = (
+                reader.execute(select_query.replace("&select_source", "arrow_data_tbl"))
                 .arrow()
                 .to_pylist()
             )
+            reader.close()
+            return result
         else:
             raise
 
@@ -212,16 +216,16 @@ def _get_table_chunk_offsets(
             )
 
         # gather the total rowcount from csv or sqlite data input sources
+        reader = _duckdb_reader()
         rowcount = int(
-            _duckdb_reader()
-            .execute(
+            reader.execute(
                 # nosec
                 f"SELECT COUNT(*) from read_csv_auto('{source_path}', header=TRUE, delim=',')"
                 if source_type == ".csv"
                 else f"SELECT COUNT(*) from sqlite_scan('{source_path}', '{table_name}')"
-            )
-            .fetchone()[0]
+            ).fetchone()[0]
         )
+        reader.close()
 
     # catch input errors which will result in skipped files
     except (duckdb.InvalidInputException, NoInputDataException) as invalid_input_exc:
