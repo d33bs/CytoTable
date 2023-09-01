@@ -765,7 +765,9 @@ def _join_source_chunk(
     )
 
     # perform compartment joins using duckdb over parquet files
-    result = _duckdb_reader().execute(joins).arrow()
+    reader = _duckdb_reader()
+    result = reader.execute(joins).arrow()
+    reader.close()
 
     # drop nulls if specified
     if drop_null:
