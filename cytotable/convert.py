@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 
 @python_app
-def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]]:
+def _get_table_columns_and_types(
+    source: Dict[str, Any], data_type_cast_map: Dict[str, str]
+) -> Tuple[Dict[str, str]]:
     """
     Gather column data from table through duckdb.
 
@@ -27,6 +29,24 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]
         source: Dict[str, Any]
             Contains the source data to be chunked. Represents a single
             file or table of some kind.
+
+    Example:
+    - columns: ({"column_id":0, "column_name":"colname", "column_dtype":"DOUBLE"})
+    - data_type_cast_map: {"float": "float32"}
+
+    The above passed through this function will set the "column_dtype" value
+    to a "REAL" dtype ("REAL" in duckdb is roughly equivalent to "float32")
+
+    Args:
+        table_path: str:
+            Path to a parquet file which will be modified.
+        data_type_cast_map: Dict[str, str]
+            A dictionary mapping data type groups to specific types.
+            Roughly to eventually align with DuckDB types:
+            https://duckdb.org/docs/sql/data_types/overview
+
+            Note: includes synonym matching for common naming convention
+            use in Pandas and/or PyArrow via cytotable.utils.DATA_TYPE_SYNONYMS
 
     Returns:
         Tuple[Dict[str, str]]
@@ -37,7 +57,11 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]
 
     import duckdb
 
-    from cytotable.utils import _duckdb_reader, _sqlite_mixed_type_query_to_parquet
+    from cytotable.utils import (
+        _duckdb_reader,
+        _sqlite_mixed_type_query_to_parquet,
+        _arrow_type_cast_if_specified,
+    )
 
     source_path = source["source_path"]
     source_type = str(pathlib.Path(source_path).suffix).lower()
@@ -79,7 +103,7 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]
         # isolate using new connection to read data with chunk size + offset
         # and export directly to parquet via duckdb (avoiding need to return data to python)
         # perform the query and create a list of dictionaries with the column data for table
-        return tuple(
+        result = tuple(
             _duckdb_reader()
             .execute(select_query.replace("&select_source", select_source))
             .arrow()
@@ -101,7 +125,7 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]
                 # result from table
                 offset=0,
             )
-            return tuple(
+            result = tuple(
                 _duckdb_reader()
                 .execute(select_query.replace("&select_source", "arrow_data_tbl"))
                 .arrow()
@@ -110,57 +134,14 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]
         else:
             raise
 
-
-@python_app
-def _prep_cast_column_data_types(
-    columns: List[Dict[str, str]], data_type_cast_map: Dict[str, str]
-) -> Tuple[Dict[str, str]]:
-    """
-    Cast data types per what is received in cast_map.
-
-    Example:
-    - columns: ({"column_id":0, "column_name":"colname", "column_dtype":"DOUBLE"})
-    - data_type_cast_map: {"float": "float32"}
-
-    The above passed through this function will set the "column_dtype" value
-    to a "REAL" dtype ("REAL" in duckdb is roughly equivalent to "float32")
-
-    Args:
-        table_path: str:
-            Path to a parquet file which will be modified.
-        data_type_cast_map: Dict[str, str]
-            A dictionary mapping data type groups to specific types.
-            Roughly to eventually align with DuckDB types:
-            https://duckdb.org/docs/sql/data_types/overview
-
-            Note: includes synonym matching for common naming convention
-            use in Pandas and/or PyArrow via cytotable.utils.DATA_TYPE_SYNONYMS
-
-    Returns:
-        Tuple[Dict[str, str]]
-            list of dictionaries which each include column level information
-    """
-
-    from functools import partial
-
-    from cytotable.utils import _arrow_type_cast_if_specified
-
     if data_type_cast_map is not None:
         return tuple(
-            # map across all columns
-            map(
-                partial(
-                    # attempts to cast the columns provided
-                    _arrow_type_cast_if_specified,
-                    # set static data_type_case_map arg for
-                    # use with all fields
-                    data_type_cast_map=data_type_cast_map,
-                ),
-                columns,
+            _arrow_type_cast_if_specified(
+                column=column, data_type_cast_map=data_type_cast_map
             )
+            for column in result
         )
-
-    return columns
+    return result
 
 
 @python_app
@@ -1129,10 +1110,8 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 chunk_size=chunk_size,
                                 offset=offset,
                                 dest_path=expanded_dest_path,
-                                columns=_prep_cast_column_data_types(
-                                    columns=_get_table_columns_and_types(
-                                        source=source,
-                                    ),
+                                columns=_get_table_columns_and_types(
+                                    source=source,
                                     data_type_cast_map=data_type_cast_map,
                                 ),
                             ),
