@@ -4,7 +4,7 @@ source data and metadata for performing conversion work.
 """
 
 import pathlib
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from cloudpathlib import AnyPath
 from parsl.app.app import join_app, python_app
@@ -156,7 +156,7 @@ def _get_source_filepaths(
 @python_app
 def _infer_source_datatype(
     sources: Dict[str, List[Dict[str, Any]]], source_datatype: Optional[str] = None
-) -> str:
+) -> Tuple[Dict[str, List[Dict[str, Any]]], str]:
     """
     Infers and optionally validates datatype (extension) of files.
 
@@ -168,8 +168,11 @@ def _infer_source_datatype(
             detected datatypes.
 
     Returns:
-        str
-            A string of the datatype detected or validated source_datatype.
+        Tuple[Dict[str, List[Dict[str, Any]]], str]
+            Dict[str, List[Dict[str, Any]]]
+                Data structure which groups related files based on the compartments.
+            str
+                A string of the datatype detected or validated source_datatype.
     """
 
     from cytotable.exceptions import DatatypeException
@@ -199,7 +202,7 @@ def _infer_source_datatype(
     if source_datatype is None:
         source_datatype = suffixes[0]
 
-    return source_datatype
+    return sources, source_datatype
 
 
 @python_app
@@ -235,47 +238,3 @@ def _filter_source_filepaths(
         ]
         for filegroup, files in sources.items()
     }
-
-
-@join_app
-def _gather_sources(
-    source_path: str,
-    source_datatype: Optional[str] = None,
-    targets: Optional[List[str]] = None,
-    **kwargs,
-) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Flow for gathering data sources for conversion.
-
-    Args:
-        source_path: str:
-            Where to gather file-based data from.
-        source_datatype: Optional[str]:  (Default value = None)
-            The source datatype (extension) to use for reading the tables.
-        targets: Optional[List[str]]:  (Default value = None)
-            The source file names to target within the provided path.
-
-    Returns:
-        Dict[str, List[Dict[str, Any]]]
-            Data structure which groups related files based on the compartments.
-    """
-
-    from cytotable.sources import (
-        _build_path,
-        _filter_source_filepaths,
-        _get_source_filepaths,
-        _infer_source_datatype,
-    )
-
-    source_path = _build_path(path=source_path, **kwargs)
-
-    # gather filepaths which will be used as the basis for this work
-    sources = _get_source_filepaths(path=source_path, targets=targets)
-
-    # infer or validate the source datatype based on source filepaths
-    source_datatype = _infer_source_datatype(
-        sources=sources, source_datatype=source_datatype
-    )
-
-    # filter source filepaths to inferred or source datatype
-    return _filter_source_filepaths(sources=sources, source_datatype=source_datatype)

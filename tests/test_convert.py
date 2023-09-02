@@ -459,13 +459,13 @@ def test_infer_source_datatype():
         "sample_1.csv": [{"source_path": "stub"}],
         "sample_2.CSV": [{"source_path": "stub"}],
     }
-    assert _infer_source_datatype(sources=data).result() == "csv"
+    assert _infer_source_datatype(sources=data).result()[1] == "csv"
     with pytest.raises(Exception):
         _infer_source_datatype(sources=data, source_datatype="parquet").result()
 
     data["sample_3.parquet"] = [{"source_path": "stub"}]
     assert (
-        _infer_source_datatype(sources=data, source_datatype="parquet").result()
+        _infer_source_datatype(sources=data, source_datatype="parquet").result()[1]
         == "parquet"
     )
     with pytest.raises(Exception):
