@@ -1060,30 +1060,15 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         _return_future,
         _source_chunk_to_parquet,
     )
-    from cytotable.sources import (
-        _build_path,
-        _filter_source_filepaths,
-        _get_source_filepaths,
-        _infer_source_datatype,
-    )
+    from cytotable.sources import _gather_sources
     from cytotable.utils import _expand_path
 
     # gather sources to be processed
-
-    # gather filepaths which will be used as the basis for this work
-    sources = _get_source_filepaths(
-        path=_build_path(path=source_path, **kwargs),
+    sources = _gather_sources(
+        source_path=source_path,
+        source_datatype=source_datatype,
         targets=list(metadata) + list(compartments),
-    ).result()
-
-    # infer or validate the source datatype based on source filepaths
-    source_datatype = _infer_source_datatype(
-        sources=sources, source_datatype=source_datatype
-    ).result()
-
-    # filter source filepaths to inferred or source datatype
-    filtered_source_filepaths = _filter_source_filepaths(
-        sources=sources, source_datatype=source_datatype
+        **kwargs,
     ).result()
 
     # if we already have a file in dest_path, remove it
@@ -1107,7 +1092,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             )
             for source in source_group_vals
         ]
-        for source_group_name, source_group_vals in filtered_source_filepaths.items()
+        for source_group_name, source_group_vals in sources.items()
     }
 
     results = {
