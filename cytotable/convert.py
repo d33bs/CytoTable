@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 @python_app
-def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]:
+def _get_table_columns_and_types(source: Dict[str, Any]) -> Tuple[Dict[str, str]]:
     """
     Gather column data from table through duckdb.
 
@@ -29,7 +29,7 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
             file or table of some kind.
 
     Returns:
-        List[Dict[str, str]]
+        Tuple[Dict[str, str]]
             list of dictionaries which each include column level information
     """
 
@@ -79,7 +79,7 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
         # isolate using new connection to read data with chunk size + offset
         # and export directly to parquet via duckdb (avoiding need to return data to python)
         # perform the query and create a list of dictionaries with the column data for table
-        return (
+        return tuple(
             _duckdb_reader()
             .execute(select_query.replace("&select_source", select_source))
             .arrow()
@@ -101,7 +101,7 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
                 # result from table
                 offset=0,
             )
-            return (
+            return tuple(
                 _duckdb_reader()
                 .execute(select_query.replace("&select_source", "arrow_data_tbl"))
                 .arrow()
@@ -114,12 +114,12 @@ def _get_table_columns_and_types(source: Dict[str, Any]) -> List[Dict[str, str]]
 @python_app
 def _prep_cast_column_data_types(
     columns: List[Dict[str, str]], data_type_cast_map: Dict[str, str]
-) -> List[Dict[str, str]]:
+) -> Tuple[Dict[str, str]]:
     """
     Cast data types per what is received in cast_map.
 
     Example:
-    - columns: [{"column_id":0, "column_name":"colname", "column_dtype":"DOUBLE"}]
+    - columns: ({"column_id":0, "column_name":"colname", "column_dtype":"DOUBLE"})
     - data_type_cast_map: {"float": "float32"}
 
     The above passed through this function will set the "column_dtype" value
@@ -137,7 +137,7 @@ def _prep_cast_column_data_types(
             use in Pandas and/or PyArrow via cytotable.utils.DATA_TYPE_SYNONYMS
 
     Returns:
-        List[Dict[str, str]]
+        Tuple[Dict[str, str]]
             list of dictionaries which each include column level information
     """
 
@@ -146,7 +146,7 @@ def _prep_cast_column_data_types(
     from cytotable.utils import _arrow_type_cast_if_specified
 
     if data_type_cast_map is not None:
-        return list(
+        return tuple(
             # map across all columns
             map(
                 partial(
@@ -249,7 +249,7 @@ def _source_chunk_to_parquet(
     chunk_size: int,
     offset: int,
     dest_path: str,
-    data_type_cast_map: Optional[Dict[str, str]] = None,
+    columns: Tuple[Dict[str, str]],
 ) -> str:
     """
     Export source data to chunked parquet file using chunk size and offsets.
@@ -292,7 +292,7 @@ def _source_chunk_to_parquet(
         [
             # here we cast the column to the specified type ensure the colname remains the same
             f"CAST({column['column_name']} AS {column['column_dtype']}) AS {column['column_name']}"
-            for column in source["columns"]
+            for column in columns
         ]
     )
 
@@ -1114,39 +1114,6 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         for source_group_name, source_group_vals in sources.items()
     }
 
-    # if offsets is none and we haven't halted, remove the file as there
-    # were input formatting errors which will create challenges downstream
-    invalid_files_dropped = {
-        source_group_name: [
-            # ensure we have offsets
-            source
-            for source in source_group_vals
-            if source["offsets"] is not None
-        ]
-        for source_group_name, source_group_vals in offsets_prepared.items()
-        # ensure we have source_groups with at least one source table
-        if len(source_group_vals) > 0
-    }
-
-    # gather column names and types from source tables
-    column_names_and_types_gathered = {
-        source_group_name: [
-            dict(
-                source,
-                **{
-                    "columns": _prep_cast_column_data_types(
-                        columns=_get_table_columns_and_types(
-                            source=source,
-                        ),
-                        data_type_cast_map=data_type_cast_map,
-                    ).result()
-                },
-            )
-            for source in source_group_vals
-        ]
-        for source_group_name, source_group_vals in invalid_files_dropped.items()
-    }
-
     results = {
         source_group_name: [
             dict(
@@ -1162,7 +1129,12 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 chunk_size=chunk_size,
                                 offset=offset,
                                 dest_path=expanded_dest_path,
-                                data_type_cast_map=data_type_cast_map,
+                                columns=_prep_cast_column_data_types(
+                                    columns=_get_table_columns_and_types(
+                                        source=source,
+                                    ),
+                                    data_type_cast_map=data_type_cast_map,
+                                ),
                             ),
                             source_group_name=source_group_name,
                             identifying_columns=identifying_columns,
@@ -1174,8 +1146,13 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                 },
             )
             for source in source_group_vals
+            # if offsets is none and we haven't halted, remove the file as there
+            # were input formatting errors which will create challenges downstream
+            if source["offsets"] is not None
         ]
-        for source_group_name, source_group_vals in column_names_and_types_gathered.items()
+        for source_group_name, source_group_vals in offsets_prepared.items()
+        # ensure we have source_groups with at least one source table
+        if len(source_group_vals) > 0
     }
 
     # if we're concatting or joining and need to infer the common schema
