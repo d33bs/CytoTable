@@ -1138,7 +1138,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     # performed after concatenation.
     if concat or join:
         # create a potential return result for concatenation output
-        concat_results = {
+        results = {
             source_group_name: _concat_source_group(
                 source_group_name=source_group_name,
                 source_group=source_group_vals,
@@ -1154,13 +1154,6 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             for source_group_name, source_group_vals in results.items()
         }
 
-        del results
-    else:
-        return _return_future(results)
-
-    if concat and not join:
-        return _return_future(concat_results)
-
     # conditional section for merging
     # note: join implies a concat, but concat does not imply a join
     if join:
@@ -1171,7 +1164,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                 # gather the result of concatted sources prior to
                 # join group merging as each mapped task run will need
                 # full concat results
-                sources=concat_results,
+                sources=results,
                 dest_path=expanded_dest_path,
                 joins=joins,
                 # get merging chunks by join columns
@@ -1182,7 +1175,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             # data in order to perform memory-safe joining
             # per user chunk size specification.
             for join_group in _get_join_chunks(
-                sources=concat_results,
+                sources=results,
                 chunk_columns=chunk_columns,
                 chunk_size=chunk_size,
                 metadata=metadata,
@@ -1192,15 +1185,14 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         # concat our join chunks together as one cohesive dataset
         # return results in common format which includes metadata
         # for lineage and debugging
-        join_result = _concat_join_sources(
+        results = _concat_join_sources(
             dest_path=expanded_dest_path,
             join_sources=join_sources_result,
-            sources=concat_results,
+            sources=results,
         ).result()
 
-        del concat_results
-
-        return _return_future(join_result)
+    # wrap the final result as a future and return
+    return _return_future(results)
 
 
 def convert(  # pylint: disable=too-many-arguments,too-many-locals
