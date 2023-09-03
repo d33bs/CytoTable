@@ -227,7 +227,7 @@ def test_concat_source_group(
         source_group_name="nuclei",
         source_group=example_local_sources["nuclei.csv"],
         dest_path=fx_tempdir,
-        common_schema=table_nuclei_1.schema,
+        data_type_cast_map=None,
     ).result()
     assert len(result) == 1
     assert parquet.read_schema(result[0]["table"][0]) == concat_table.schema
@@ -662,7 +662,7 @@ def test_infer_source_group_common_schema(
 
     result = _infer_source_group_common_schema(
         source_group=example_local_sources["nuclei.csv"],
-    ).result()
+    )
 
     assert table_nuclei_1.schema.equals(pa.schema(result))
 

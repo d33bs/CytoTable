@@ -18,7 +18,6 @@ from cytotable.utils import _column_sort, _default_parsl_config, _parsl_loaded
 logger = logging.getLogger(__name__)
 
 
-@python_app
 def _get_table_columns_and_types(
     source: Dict[str, Any], data_type_cast_map: Dict[str, str]
 ) -> Tuple[Dict[str, str]]:
@@ -228,7 +227,7 @@ def _source_chunk_to_parquet(
     chunk_size: int,
     offset: int,
     dest_path: str,
-    columns: Tuple[Dict[str, str]],
+    data_type_cast_map,
 ) -> str:
     """
     Export source data to chunked parquet file using chunk size and offsets.
@@ -257,7 +256,13 @@ def _source_chunk_to_parquet(
     from cloudpathlib import AnyPath
     from pyarrow import parquet
 
+    from cytotable.convert import _get_table_columns_and_types
     from cytotable.utils import _duckdb_reader, _sqlite_mixed_type_query_to_parquet
+
+    columns = _get_table_columns_and_types(
+        source=source,
+        data_type_cast_map=data_type_cast_map,
+    )
 
     # attempt to build dest_path
     source_dest_path = (
@@ -468,8 +473,8 @@ def _prepend_column_name(
 def _concat_source_group(
     source_group_name: str,
     source_group: List[Dict[str, Any]],
+    data_type_cast_map,
     dest_path: str = ".",
-    common_schema: Optional[List[Tuple[str, str]]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Concatenate group of source data together as single file.
@@ -528,11 +533,17 @@ def _concat_source_group(
     import pyarrow.parquet as parquet
 
     from cytotable.exceptions import SchemaException
+    from cytotable.convert import _infer_source_group_common_schema
     from cytotable.utils import CYTOTABLE_ARROW_USE_MEMORY_MAPPING
 
     # check whether we already have a file as dest_path
     if pathlib.Path(dest_path).is_file():
         pathlib.Path(dest_path).unlink(missing_ok=True)
+
+    common_schema = _infer_source_group_common_schema(
+        source_group=source_group,
+        data_type_cast_map=data_type_cast_map,
+    )
 
     # build a result placeholder
     concatted: List[Dict[str, Any]] = [
@@ -868,7 +879,6 @@ def _concat_join_sources(
     return dest_path
 
 
-@python_app
 def _infer_source_group_common_schema(
     source_group: List[Dict[str, Any]],
     data_type_cast_map: Optional[Dict[str, str]] = None,
@@ -1112,10 +1122,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 chunk_size=chunk_size,
                                 offset=offset,
                                 dest_path=expanded_dest_path,
-                                columns=_get_table_columns_and_types(
-                                    source=source,
-                                    data_type_cast_map=data_type_cast_map,
-                                ),
+                                data_type_cast_map=data_type_cast_map,
                             ),
                             source_group_name=source_group_name,
                             identifying_columns=identifying_columns,
@@ -1147,13 +1154,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                 source_group_name=source_group_name,
                 source_group=source_group_vals,
                 dest_path=expanded_dest_path,
-                # if we're concatting or joining and need to infer the common schema
-                common_schema=_infer_source_group_common_schema(
-                    source_group=source_group_vals,
-                    data_type_cast_map=data_type_cast_map,
-                )
-                if infer_common_schema
-                else None,
+                data_type_cast_map=data_type_cast_map,
             ).result()
             for source_group_name, source_group_vals in results.items()
         }
