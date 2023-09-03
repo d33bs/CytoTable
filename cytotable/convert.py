@@ -106,8 +106,7 @@ def _get_table_columns_and_types(
         result = tuple(
             _duckdb_reader()
             .execute(select_query.replace("&select_source", select_source))
-            .arrow()
-            .to_pylist()
+            .fetchall()
         )
 
     except duckdb.Error as e:
@@ -128,8 +127,7 @@ def _get_table_columns_and_types(
             result = tuple(
                 _duckdb_reader()
                 .execute(select_query.replace("&select_source", "arrow_data_tbl"))
-                .arrow()
-                .to_pylist()
+                .fetchall()
             )
         else:
             raise
@@ -272,7 +270,7 @@ def _source_chunk_to_parquet(
     select_columns = ",".join(
         [
             # here we cast the column to the specified type ensure the colname remains the same
-            f"CAST({column['column_name']} AS {column['column_dtype']}) AS {column['column_name']}"
+            f"CAST({column[1]} AS {column[2]}) AS {column[1]}"
             for column in columns
         ]
     )
@@ -951,8 +949,8 @@ def _infer_source_group_common_schema(
             )
         )
 
-    # return a python-native list of tuples with column names and str types
-    return list(
+    # return a python-native tuple of tuples with column names and str types
+    return tuple(
         zip(
             common_schema.names,
             [str(schema_type) for schema_type in common_schema.types],
@@ -1134,20 +1132,6 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         if len(source_group_vals) > 0
     }
 
-    # if we're concatting or joining and need to infer the common schema
-    if (concat or join) and infer_common_schema:
-        # create a common schema for concatenation work
-        common_schema_determined = {
-            source_group_name: {
-                "sources": source_group_vals,
-                "common_schema": _infer_source_group_common_schema(
-                    source_group=source_group_vals,
-                    data_type_cast_map=data_type_cast_map,
-                ),
-            }
-            for source_group_name, source_group_vals in results.items()
-        }
-
     # if concat or join, concat the source groups
     # note: join implies a concat, but concat does not imply a join
     # We concat to join in order to create a common schema for join work
@@ -1157,11 +1141,17 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
         results = {
             source_group_name: _concat_source_group(
                 source_group_name=source_group_name,
-                source_group=source_group_vals["sources"],
+                source_group=source_group_vals,
                 dest_path=expanded_dest_path,
-                common_schema=source_group_vals["common_schema"],
+                # if we're concatting or joining and need to infer the common schema
+                common_schema=_infer_source_group_common_schema(
+                    source_group=source_group_vals,
+                    data_type_cast_map=data_type_cast_map,
+                )
+                if infer_common_schema
+                else None,
             ).result()
-            for source_group_name, source_group_vals in common_schema_determined.items()
+            for source_group_name, source_group_vals in results.items()
         }
 
     # conditional section for merging

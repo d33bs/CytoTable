@@ -371,22 +371,22 @@ def _arrow_type_cast_if_specified(
             A potentially data type updated dictionary of column information
     """
     # for casting to new float type
-    if "float" in data_type_cast_map.keys() and column["column_dtype"] in [
+    if "float" in data_type_cast_map.keys() and column[2] in [
         "REAL",
         "DOUBLE",
     ]:
-        return {
-            "column_id": column["column_id"],
-            "column_name": column["column_name"],
-            "column_dtype": [
+        return (
+            column[0],
+            column[1],
+            [
                 key
                 for key, value in DDB_DATA_TYPE_SYNONYMS.items()
                 if data_type_cast_map["float"] in value
             ][0],
-        }
+        )
 
     # for casting to new int type
-    elif "integer" in data_type_cast_map.keys() and column["column_dtype"] in [
+    elif "integer" in data_type_cast_map.keys() and column[2] in [
         "TINYINT",
         "SMALLINT",
         "INTEGER",
@@ -397,15 +397,15 @@ def _arrow_type_cast_if_specified(
         "UINTEGER",
         "UBIGINT",
     ]:
-        return {
-            "column_id": column["column_id"],
-            "column_name": column["column_name"],
-            "column_dtype": [
+        return (
+            column[0],
+            column[1],
+            [
                 key
                 for key, value in DDB_DATA_TYPE_SYNONYMS.items()
                 if data_type_cast_map["integer"] in value
             ][0],
-        }
+        )
 
     # else we retain the existing data field type
     return column
