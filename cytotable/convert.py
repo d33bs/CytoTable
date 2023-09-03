@@ -329,6 +329,8 @@ def _source_chunk_to_parquet(
         else:
             raise
 
+    del columns
+
     # return the filepath for the chunked output file
     return result_filepath
 
@@ -603,6 +605,8 @@ def _concat_source_group(
 
     # return the concatted parquet filename
     concatted[0]["table"] = [destination_path]
+
+    del common_schema
 
     return concatted
 
