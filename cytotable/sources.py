@@ -62,6 +62,7 @@ def _get_source_filepaths(
             Data structure which groups related files based on the compartments.
     """
 
+    import copy
     import pathlib
 
     from cloudpathlib import AnyPath
@@ -101,7 +102,7 @@ def _get_source_filepaths(
             expanded_sources += [
                 {
                     "source_path": AnyPath(
-                        f"{element['source_path']}/{table_name}.sqlite"
+                        f"{copy.copy(element['source_path'])}/{table_name}.sqlite"
                     ),
                     "table_name": table_name,
                 }
@@ -125,27 +126,24 @@ def _get_source_filepaths(
             # if we don't have sqlite source, append the existing element
             expanded_sources.append(element)
 
-    # reset sources to expanded_sources
-    sources = expanded_sources
-
     # if we collected no files above, raise exception
-    if len(sources) < 1:
+    if len(expanded_sources) < 1:
         raise NoInputDataException(f"No input data to process at path: {str(path)}")
 
     # group files together by similar filename for later data operations
     grouped_sources = {}
-    for unique_source in set(source["source_path"].name for source in sources):
+    for unique_source in set(source["source_path"].name for source in expanded_sources):
         grouped_sources[unique_source.capitalize()] = [
             # case for files besides sqlite
-            source if source["source_path"].suffix.lower() != ".sqlite"
+            copy.copy(source) if source["source_path"].suffix.lower() != ".sqlite"
             # if we have sqlite entries, update the source_path to the parent
             # (the parent table database file) as grouped key name will now
             # encapsulate the table name details.
             else {
-                "source_path": source["source_path"].parent,
-                "table_name": source["table_name"],
+                "source_path": copy.copy(source["source_path"].parent),
+                "table_name": copy.copy(source["table_name"]),
             }
-            for source in sources
+            for source in expanded_sources
             # focus only on entries which include the unique_source name
             if source["source_path"].name == unique_source
         ]
