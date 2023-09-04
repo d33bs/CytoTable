@@ -1005,7 +1005,6 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     joins: Optional[str],
     chunk_columns: Optional[Union[List[str], Tuple[str, ...]]],
     chunk_size: Optional[int],
-    infer_common_schema: bool,
     drop_null: bool,
     data_type_cast_map: Optional[Dict[str, str]] = None,
     **kwargs,
@@ -1040,8 +1039,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             Column names which appear in all compartments to use when performing join.
         chunk_size: Optional[int],
             Size of join chunks which is used to limit data size during join ops.
-        infer_common_schema: bool:  (Default value = True)
-            Whether to infer a common schema when concatenating sources.
+
         drop_null: bool:
             Whether to drop null results.
         data_type_cast_map: Dict[str, str]
@@ -1213,7 +1211,6 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
     joins: Optional[str] = None,
     chunk_columns: Optional[Union[List[str], Tuple[str, ...]]] = None,
     chunk_size: Optional[int] = None,
-    infer_common_schema: bool = True,
     drop_null: bool = False,
     data_type_cast_map: Optional[Dict[str, str]] = None,
     preset: Optional[str] = "cellprofiler_csv",
@@ -1257,8 +1254,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             Column names which appear in all compartments to use when performing join
         chunk_size: Optional[int] (Default value = None)
             Size of join chunks which is used to limit data size during join ops
-        infer_common_schema: bool: (Default value = True)
-            Whether to infer a common schema when concatenating sources.
+
         drop_null: bool (Default value = False)
             Whether to drop nan/null values from results
         preset: str (Default value = "cellprofiler_csv")
@@ -1366,7 +1362,6 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             joins=joins,
             chunk_columns=chunk_columns,
             chunk_size=chunk_size,
-            infer_common_schema=infer_common_schema,
             drop_null=drop_null,
             data_type_cast_map=data_type_cast_map,
             **kwargs,
