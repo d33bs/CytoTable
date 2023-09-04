@@ -312,6 +312,10 @@ def _sqlite_mixed_type_query_to_parquet(
             for row in cursor.fetchall()
         ]
 
+        # close cursor and connection
+        cursor.close()
+    conn.close()
+
     # return arrow table with results
     return pa.Table.from_pylist(results)
 

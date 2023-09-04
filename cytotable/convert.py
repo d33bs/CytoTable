@@ -102,11 +102,12 @@ def _get_table_columns_and_types(
         # isolate using new connection to read data with chunk size + offset
         # and export directly to parquet via duckdb (avoiding need to return data to python)
         # perform the query and create a list of dictionaries with the column data for table
-        result = tuple(
-            _duckdb_reader()
-            .execute(select_query.replace("&select_source", select_source))
-            .fetchall()
-        )
+        with _duckdb_reader() as ddb_reader:
+            result = tuple(
+                ddb_reader.execute(
+                    select_query.replace("&select_source", select_source)
+                ).fetchall()
+            )
 
     except duckdb.Error as e:
         # if we see a mismatched type error
@@ -123,11 +124,12 @@ def _get_table_columns_and_types(
                 # result from table
                 offset=0,
             )
-            result = tuple(
-                _duckdb_reader()
-                .execute(select_query.replace("&select_source", "arrow_data_tbl"))
-                .fetchall()
-            )
+            with _duckdb_reader() as ddb_reader:
+                result = tuple(
+                    ddb_reader.execute(
+                        select_query.replace("&select_source", "arrow_data_tbl")
+                    ).fetchall()
+                )
         else:
             raise
 
@@ -190,16 +192,15 @@ def _get_table_chunk_offsets(
             )
 
         # gather the total rowcount from csv or sqlite data input sources
-        rowcount = int(
-            _duckdb_reader()
-            .execute(
-                # nosec
-                f"SELECT COUNT(*) from read_csv_auto('{source_path}', header=TRUE, delim=',')"
-                if source_type == ".csv"
-                else f"SELECT COUNT(*) from sqlite_scan('{source_path}', '{table_name}')"
+        with _duckdb_reader() as ddb_reader:
+            rowcount = int(
+                ddb_reader.execute(
+                    # nosec
+                    f"SELECT COUNT(*) from read_csv_auto('{source_path}', header=TRUE, delim=',')"
+                    if source_type == ".csv"
+                    else f"SELECT COUNT(*) from sqlite_scan('{source_path}', '{table_name}')"
+                ).fetchone()[0]
             )
-            .fetchone()[0]
-        )
 
     # catch input errors which will result in skipped files
     except (duckdb.InvalidInputException, NoInputDataException) as invalid_input_exc:
@@ -298,17 +299,16 @@ def _source_chunk_to_parquet(
     try:
         # read data with chunk size + offset
         # and export to parquet
-        parquet.write_table(
-            table=_duckdb_reader()
-            .execute(
-                f"""
-                {base_query}
-                LIMIT {chunk_size} OFFSET {offset}
-                """
+        with _duckdb_reader() as ddb_reader:
+            parquet.write_table(
+                table=ddb_reader.execute(
+                    f"""
+                    {base_query}
+                    LIMIT {chunk_size} OFFSET {offset}
+                    """
+                ).arrow(),
+                where=result_filepath,
             )
-            .arrow(),
-            where=result_filepath,
-        )
     # Include exception handling to read mixed-type data
     # using sqlite3 and special utility function.
     except duckdb.Error as e:
@@ -758,7 +758,8 @@ def _join_source_chunk(
     )
 
     # perform compartment joins using duckdb over parquet files
-    result = _duckdb_reader().execute(joins).arrow()
+    with _duckdb_reader() as ddb_reader:
+        result = ddb_reader.execute(joins).arrow()
 
     # drop nulls if specified
     if drop_null:
