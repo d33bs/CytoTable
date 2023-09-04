@@ -57,9 +57,9 @@ def _get_table_columns_and_types(
     import duckdb
 
     from cytotable.utils import (
+        _arrow_type_cast_if_specified,
         _duckdb_reader,
         _sqlite_mixed_type_query_to_parquet,
-        _arrow_type_cast_if_specified,
     )
 
     source_path = source["source_path"]
@@ -532,8 +532,8 @@ def _concat_source_group(
     import pyarrow as pa
     import pyarrow.parquet as parquet
 
-    from cytotable.exceptions import SchemaException
     from cytotable.convert import _infer_source_group_common_schema
+    from cytotable.exceptions import SchemaException
     from cytotable.utils import CYTOTABLE_ARROW_USE_MEMORY_MAPPING
 
     # check whether we already have a file as dest_path
@@ -1057,6 +1057,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             result.
     """
 
+    import copy
     import pathlib
 
     from cytotable.convert import (
@@ -1090,12 +1091,12 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
 
     # prepare offsets for chunked data export from source tables
     offsets_prepared = {
-        source_group_name: [
+        copy.copy(source_group_name): [
             dict(
-                source,
+                copy.copy(source),
                 **{
                     "offsets": _get_table_chunk_offsets(
-                        source=source,
+                        source=copy.copy(source),
                         chunk_size=chunk_size,
                     ).result()
                 },
@@ -1106,23 +1107,23 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     }
 
     results = {
-        source_group_name: [
+        copy.copy(source_group_name): [
             dict(
-                source,
+                copy.copy(source),
                 **{
                     "table": [
                         # perform column renaming and create potential return result
                         _prepend_column_name(
                             # perform chunked data export to parquet using offsets
                             table_path=_source_chunk_to_parquet(
-                                source_group_name=source_group_name,
-                                source=source,
+                                source_group_name=copy.copy(source_group_name),
+                                source=copy.copy(source),
                                 chunk_size=chunk_size,
                                 offset=offset,
                                 dest_path=expanded_dest_path,
                                 data_type_cast_map=data_type_cast_map,
                             ),
-                            source_group_name=source_group_name,
+                            source_group_name=copy.copy(source_group_name),
                             identifying_columns=identifying_columns,
                             metadata=metadata,
                             compartments=compartments,
