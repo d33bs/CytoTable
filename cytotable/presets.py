@@ -48,6 +48,7 @@ config = {
             LEFT JOIN read_parquet('nuclei.parquet') AS nuclei ON
                 nuclei.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
                 AND nuclei.Metadata_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Nuclei
+            ORDER BY ALL
             """,
     },
     "cellprofiler_sqlite": {
@@ -94,6 +95,7 @@ config = {
             LEFT JOIN read_parquet('per_nuclei.parquet') AS per_nuclei ON
                 per_nuclei.Metadata_ImageNumber = per_cytoplasm.Metadata_ImageNumber
                 AND per_nuclei.Nuclei_Number_Object_Number = per_cytoplasm.Cytoplasm_Parent_Nuclei
+            ORDER BY ALL
             """,
     },
     "cellprofiler_sqlite_pycytominer": {
@@ -145,6 +147,7 @@ config = {
             LEFT JOIN read_parquet('per_nuclei.parquet') AS per_nuclei ON
                 per_nuclei.Metadata_ImageNumber = per_cytoplasm.Metadata_ImageNumber
                 AND per_nuclei.Metadata_Nuclei_Number_Object_Number = per_cytoplasm.Metadata_Cytoplasm_Parent_Nuclei
+            ORDER BY ALL
             """,
     },
     "cell-health-cellprofiler-to-cytominer-database": {
@@ -202,6 +205,7 @@ config = {
                 nuclei.Metadata_TableNumber = cytoplasm.Metadata_TableNumber
                 AND nuclei.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
                 AND nuclei.Nuclei_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Nuclei
+            ORDER BY ALL
         """,
     },
     "in-carta": {
