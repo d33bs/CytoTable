@@ -132,6 +132,7 @@ dmypy.json
 *.parquet
 *.csv
 *.png
+*.sqlite
 
 # parsl ignores
 runinfo
