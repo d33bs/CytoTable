@@ -1,4 +1,4 @@
-# Tutorial
+# Basic Tutorial
 
 This page covers brief tutorials and notes on how to use CytoTable.
 

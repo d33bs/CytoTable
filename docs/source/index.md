@@ -13,7 +13,7 @@ caption: 'Contents:'
 maxdepth: 3
 ---
 overview
-tutorial
+tutorials
 contributing
 Code of Conduct <code_of_conduct>
 architecture
