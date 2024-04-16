@@ -100,6 +100,8 @@ At the same time, consider using a subset which is not "too" small to help demon
 - __Chunk sizes based on Parquet dataset file sizes:__ one way to estimate chunk size for a given source dataset is to use Parquet dataset file size.
 Parquet files are often thought to have the best performance when their storage size is around `100 MB` - `1024 MB` (`1 GB`).
 - __Best number of threads__: the number of threads used by software is typically set to the number of processors available (sometimes multiplied by small integer, as in the case of Python's [`ThreadPoolExecutor`](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor).).
+- __Multithreading involves "taking turns"__: multiple threads within the same process will "take turns" to accomplish a task (we won't see completion of tasks at the exact same time).
+- __Multiprocessing is typicaly more resource intensive__: multiprocessing allows tasks to be completed in parallel but often involves the consumption of greater resources due to management overhead and how entire processors are utilized (in addition to threading behavior).
 - __Avoid too much multitasking (multithread or multiprocess tasks)__: there are limits to the benefits received through multitasking.
 Each task has an inherent resource cost overhead for management in addition to the work it will accomplish.
 Be sure to consider reasonable numbers of multithreaded or multiprocessed tasks to avoid too much management overhead.
@@ -212,39 +214,51 @@ import duckdb
 chunk_size_to_try = 10000
 benchmark_filesize_file = "example-benchmark.parquet"
 
-# use duckdb to extract a "chunk" of data using chunk_size
-# and exporting to Parquet file.
-with duckdb.connect() as ddb:
-    ddb.execute(
-        """
-        /* Install and load sqlite plugin for duckdb */
-        INSTALL sqlite_scanner;
-        LOAD sqlite_scanner;
-        """
-    )
-    ddb.execute(
-        f"""
-        COPY (
-            SELECT *
-            /* duckdb allows us to use a special function to
-            access SQLite database tables directly as seen here */
-            FROM sqlite_scan({str(local_file)}, 'Cells')
-            LIMIT {chunk_size_to_try}
+
+def export_sqlite_table_rows_to_parquet(
+    sqlite_file: str, chunk_size: int, parquet_filename: str
+) -> str:
+    # use duckdb to extract a "chunk" of data using chunk_size
+    # and exporting to Parquet file.
+    with duckdb.connect() as ddb:
+        ddb.execute(
+            """
+            /* Install and load sqlite plugin for duckdb */
+            INSTALL sqlite_scanner;
+            LOAD sqlite_scanner;
+            """
         )
-        /* here we export to a file of parquet format type */
-        TO '{benchmark_filesize_file}'
-        (FORMAT PARQUET)
-        """
-    )
+        ddb.execute(
+            f"""
+            COPY (
+                SELECT *
+                /* duckdb allows us to use a special function to
+                access SQLite database tables directly as seen here */
+                FROM sqlite_scan({str(sqlite_file)}, 'Cells')
+                LIMIT {chunk_size}
+            )
+            /* here we export to a file of parquet format type */
+            TO '{parquet_filename}'
+            (FORMAT PARQUET)
+            """
+        )
+    return parquet_filename
+
+
+parquet_filename = export_sqlite_table_rows_to_parquet(
+    sqlite_file=local_file,
+    chunk_size=chunk_size_to_try,
+    parquet_filename=benchmark_filesize_file,
+)
 
 print(
     f"Parquet file size with chunk size of {chunk_size_to_try}:",
-    round(pathlib.Path(benchmark_filesize_file).stat().st_size / 1024 / 1024),
+    round(pathlib.Path(parquet_filename).stat().st_size / 1024 / 1024),
     "MB",
 )
 ```
 
-### How can we estimate the number of threads to use?
+### How can we estimate the number of threads or processes to use?
 
 We can use the number of processors on the system as a rough estimate for number of threads to use.
 Recall that this is only an heuristic as the number of possible threads to use is much higher but may come with an imbalance from thread management overhead (or other aspects).
@@ -253,7 +267,12 @@ Recall that this is only an heuristic as the number of possible threads to use i
 import multiprocessing
 
 number_of_threads_to_try = multiprocessing.cpu_count()
-print(number_of_threads_to_try)
+number_of_processors_to_try = multiprocessing.cpu_count()
+print(
+    f"Threads to try: {number_of_threads_to_try}",
+    f"Processors to try: {number_of_processors_to_try}",
+    sep="\n",
+)
 ```
 
 ### How does multithreaded performance change with different configurations?
@@ -261,59 +280,266 @@ print(number_of_threads_to_try)
 We can use [`parsl.executors.ThreadPoolExecutor`](https://parsl.readthedocs.io/en/stable/stubs/parsl.executors.ThreadPoolExecutor.html) to test various numbers of threads and other configuration to see what happens.
 
 ```{code-cell} ipython3
-%%timeit -n 1
+print(
+    f"Threads: {number_of_threads_to_try}", f"Chunk size: {chunk_size_to_try}", sep="\n"
+)
+```
+
+```{code-cell} ipython3
+# set identifying columns to use
+identifying_columns = (
+    "TableNumber",
+    "ImageNumber",
+    "Parent_Cells",
+    "Parent_Nuclei",
+    "Cytoplasm_Parent_Cells",
+    "Cytoplasm_Parent_Nuclei",
+    "Cells_ObjectNumber",
+    "Nuclei_ObjectNumber",
+)
+```
+
+```{code-cell} ipython3
+%%timeit -r 1 -n 1
 
 from parsl.config import Config
 from parsl.executors import ThreadPoolExecutor
 
 import cytotable
 
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+
 result = cytotable.convert(
     source_path=str(local_file),
-    dest_path=f"{str(local_file.name)}.parquet",
+    dest_path=str(local_file.name).replace(".sqlite", ".parquet"),
     dest_datatype="parquet",
     preset="cell-health-cellprofiler-to-cytominer-database",
     chunk_size=chunk_size_to_try,
     parsl_config=Config(
         executors=[ThreadPoolExecutor(max_threads=number_of_threads_to_try)]
     ),
-    joins="""WITH Image_Filtered AS (
-                SELECT
-                    Metadata_TableNumber,
-                    Metadata_ImageNumber,
-                    Metadata_Well,
-                    Image_Metadata_Plate
-                FROM
-                    read_parquet('image.parquet')
-                )
-            SELECT
-                *
-            FROM
-                Image_Filtered AS image
-            LEFT JOIN read_parquet('cytoplasm.parquet') AS cytoplasm ON
-                cytoplasm.Metadata_TableNumber = image.Metadata_TableNumber
-                AND cytoplasm.Metadata_ImageNumber = image.Metadata_ImageNumber
-            LEFT JOIN read_parquet('cells.parquet') AS cells ON
-                cells.Metadata_TableNumber = cytoplasm.Metadata_TableNumber
-                AND cells.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
-                AND cells.Cells_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Cells
-            LEFT JOIN read_parquet('nuclei.parquet') AS nuclei ON
-                nuclei.Metadata_TableNumber = cytoplasm.Metadata_TableNumber
-                AND nuclei.Metadata_ImageNumber = cytoplasm.Metadata_ImageNumber
-                AND nuclei.Nuclei_ObjectNumber = cytoplasm.Metadata_Cytoplasm_Parent_Nuclei
+    identifying_columns=identifying_columns,
+)
+result
+```
 
-        """,
+#### What happens if we increase the chunk size?
+
+What happens if we increase the chunk size to the upper boundary of the Parquet size heuristic (100 MB - 1 GB) and have only one chunk per table?
+
+```{code-cell} ipython3
+print(
+    f"Threads: {number_of_threads_to_try}",
+    f"Chunk size: {chunk_size_to_try * 8}",
+    sep="\n",
+)
+```
+
+```{code-cell} ipython3
+# show the estimated parquet file size with a larger chunk size
+parquet_filename = export_sqlite_table_rows_to_parquet(
+    sqlite_file=local_file,
+    chunk_size=chunk_size_to_try * 8,
+    parquet_filename=benchmark_filesize_file,
+)
+
+print(
+    f"Parquet file size with chunk size of {chunk_size_to_try * 8}:",
+    round(pathlib.Path(parquet_filename).stat().st_size / 1024 / 1024),
+    "MB",
+)
+```
+
+```{code-cell} ipython3
+import parsl
+
+# remove any previous output
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+pathlib.Path(destination_path).unlink(missing_ok=True)
+
+# reset parsl config for fair comparisons
+parsl.clear()
+```
+
+```{code-cell} ipython3
+%%timeit -r 1 -n 1
+
+from parsl.config import Config
+from parsl.executors import ThreadPoolExecutor
+
+import cytotable
+
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+
+# remove any previous output
+pathlib.Path(destination_path).unlink(missing_ok=True)
+
+result = cytotable.convert(
+    source_path=str(local_file),
+    dest_path=destination_path,
+    dest_datatype="parquet",
+    preset="cell-health-cellprofiler-to-cytominer-database",
+    chunk_size=chunk_size_to_try * 8,
+    parsl_config=Config(
+        executors=[ThreadPoolExecutor(max_threads=number_of_threads_to_try)]
+    ),
+    identifying_columns=identifying_columns,
 )
 result
 ```
 
 ```{code-cell} ipython3
-# remove the result
-import shutil
+# remove any previous output
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+pathlib.Path(destination_path).unlink(missing_ok=True)
 
-shutil.rmtree("BR00126114.sqlite.parquet")
+# reset parsl config for fair comparisons
+parsl.clear()
 ```
 
 ### How does multprocessed performance change with different configurations?
 
 We can use [`parsl.executors.HighThroughputExecutor`](https://parsl.readthedocs.io/en/stable/stubs/parsl.executors.HighThroughputExecutor.html) to test various numbers of blocks and other configuration to see what happens.
+
+```{code-cell} ipython3
+print(
+    f"Processors: {number_of_processors_to_try}",
+    f"Chunk size: {chunk_size_to_try}",
+    sep="\n",
+)
+```
+
+```{code-cell} ipython3
+%%timeit -r 1 -n 1
+
+from parsl.config import Config
+from parsl.executors import HighThroughputExecutor
+from parsl.providers import LocalProvider
+
+import cytotable
+
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+
+result = cytotable.convert(
+    source_path=str(local_file),
+    dest_path=destination_path,
+    dest_datatype="parquet",
+    preset="cell-health-cellprofiler-to-cytominer-database",
+    chunk_size=chunk_size_to_try,
+    parsl_config=Config(
+        executors=[
+            HighThroughputExecutor(
+                max_workers_per_node=1,
+                provider=LocalProvider(
+                    max_blocks=number_of_processes_to_try,
+                ),
+            )
+        ]
+    ),
+    identifying_columns=identifying_columns,
+)
+result
+```
+
+```{code-cell} ipython3
+# remove any previous output
+import shutil
+
+import parsl
+
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+shutil.rmtree(destination_path)
+pathlib.Path(destination_path).unlink(missing_ok=True)
+
+# reset parsl config for fair comparisons
+parsl.clear()
+```
+
+```{code-cell} ipython3
+# reset parsl config for fair comparisons
+parsl.clear()
+```
+
+```{code-cell} ipython3
+%%timeit -r 1 -n 1
+
+from parsl.config import Config
+from parsl.executors import HighThroughputExecutor
+from parsl.providers import LocalProvider
+
+import cytotable
+
+destination_path = str(local_file.name).replace(".sqlite", ".parquet")
+
+result = cytotable.convert(
+    source_path=str(local_file),
+    dest_path=destination_path,
+    dest_datatype="parquet",
+    preset="cell-health-cellprofiler-to-cytominer-database",
+    chunk_size=chunk_size_to_try,
+    parsl_config=Config(
+        executors=[
+            HighThroughputExecutor(
+                label="local_htex",
+                max_workers_per_node=2,
+                provider=LocalProvider(
+                    min_blocks=1,
+                    init_blocks=1,
+                    max_blocks=2,
+                    nodes_per_block=1,
+                    parallelism=1,
+                ),
+            )
+        ]
+    ),
+    identifying_columns=identifying_columns,
+)
+result
+```
+
+```{code-cell} ipython3
+# 10min 36s ± 0 ns per loop (mean ± std. dev. of 1 run, 1 loop each)
+"""
+HighThroughputExecutor(
+                provider=LocalProvider(
+                    init_blocks=round(number_of_processes_to_try / 2),
+                    max_blocks=round(number_of_processes_to_try / 2),
+                ),
+            )
+"""
+# 9min 32s ± 0 ns per loop (mean ± std. dev. of 1 run, 1 loop each) - with
+"""
+HighThroughputExecutor(
+                cores_per_worker=1,
+                max_workers_per_node=1,
+                provider=LocalProvider(
+                    nodes_per_block=1,
+                    init_blocks=round(number_of_processes_to_try / 2),
+                    max_blocks=round(number_of_processes_to_try / 2),
+                ),
+            )
+"""
+# 9min 54s ± 0 ns per loop (mean ± std. dev. of 1 run, 1 loop each)
+"""
+HighThroughputExecutor(
+                cores_per_worker=1,
+                max_workers_per_node=1,
+                provider=LocalProvider(
+                    nodes_per_block=1,
+                    init_blocks=number_of_processes_to_try,
+                    max_blocks=number_of_processes_to_try,
+                ),
+            )
+"""
+```
+
+```console
+
+
+to_parquet
+--> _gather_sources.result() (join app)
+--> _get_table_chunk_offsets.result() (python_app)
+--> _get_table_columns_and_types.result() (python_app)
+
+
+```
