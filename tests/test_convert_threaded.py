@@ -60,6 +60,7 @@ def test_convert_tpe_cellprofiler_csv(
 
 def test_convert_s3_path_csv(
     load_parsl_threaded: None,
+    fixture_mock_s3_credentials: None,
     fx_tempdir: str,
     example_local_sources: Dict[str, List[Dict[str, Any]]],
     example_s3_endpoint: str,
@@ -81,13 +82,12 @@ def test_convert_s3_path_csv(
         identifying_columns=["imagenumber"],
         # endpoint_url here will be used with cloudpathlib client(**kwargs)
         endpoint_url=example_s3_endpoint,
-        parsl_config=Config(
-            executors=[
-                ThreadPoolExecutor(
-                    label="tpe_for_cytotable_testing_moto_s3",
-                )
-            ]
-        ),
+        # note: we set an unsigned connection for uncredentialed access
+        # and set persistent cloudpathlib cache here to avoid the data
+        # being removed before CytoTable may read it.
+        no_sign_request=True,
+        file_cache_mode="persistent",
+        local_cache_dir=f"{fx_tempdir}/cloudcache",
     )
 
     # compare each of the results using files from the source
@@ -114,6 +114,7 @@ def test_convert_s3_path_csv(
 
 def test_convert_s3_path_sqlite(
     load_parsl_threaded: None,
+    fixture_mock_s3_credentials: None,
     fx_tempdir: str,
     data_dir_cellprofiler_sqlite_nf1: str,
     example_s3_endpoint: str,
@@ -154,7 +155,10 @@ def test_convert_s3_path_sqlite(
             # use explicit cache to avoid temp cache removal / overlaps with
             # sequential s3 SQLite files. See below for more information
             # https://cloudpathlib.drivendata.org/stable/caching/#automatically
+            file_cache_mode="persistent",
             local_cache_dir=f"{fx_tempdir}/sqlite_s3_cache/1",
+            # note: we set an unsigned connection for uncredentialed access
+            no_sign_request=True,
         )
     )
 
@@ -173,7 +177,10 @@ def test_convert_s3_path_sqlite(
             # use explicit cache to avoid temp cache removal / overlaps with
             # sequential s3 SQLite files. See below for more information
             # https://cloudpathlib.drivendata.org/stable/caching/#automatically
+            file_cache_mode="persistent",
             local_cache_dir=f"{fx_tempdir}/sqlite_s3_cache/2",
+            # note: we set an unsigned connection for uncredentialed access
+            no_sign_request=True,
         )
     )
 

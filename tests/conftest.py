@@ -4,6 +4,7 @@ conftest.py for pytest
 
 # pylint: disable=line-too-long,unused-argument
 
+import os
 import pathlib
 import shutil
 import socket
@@ -617,6 +618,19 @@ def fixture_infer_open_port() -> int:
         # Return the port value of the socket address of format (hostname, port).
         return open_socket.getsockname()[1]
 
+@pytest.fixture(scope="session")
+def fixture_mock_s3_credentials():
+    """
+    Mocked AWS Credentials for moto.
+    
+    We follow guidance provided from moto documentation here:
+    https://docs.getmoto.org/en/latest/docs/getting_started.html#example-on-usage
+    """
+    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+    os.environ["AWS_SECURITY_TOKEN"] = "testing"
+    os.environ["AWS_SESSION_TOKEN"] = "testing"
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
 
 @pytest.fixture(scope="session", name="s3_session")
 def fixture_s3_session(
