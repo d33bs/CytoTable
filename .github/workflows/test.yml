@@ -3,7 +3,7 @@ name: run tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, join-concat-options-forked-test]
   pull_request:
     branches: [main]
   schedule:
