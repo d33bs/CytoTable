@@ -102,6 +102,7 @@ def test_convert_s3_path_sqlite_join(
         # sequential s3 SQLite files. See below for more information
         # https://cloudpathlib.drivendata.org/stable/caching/#automatically
         local_cache_dir=f"{fx_tempdir}/sqlite_s3_cache/2",
+        concat=False
     )
 
     # read only the metadata from parquet file
