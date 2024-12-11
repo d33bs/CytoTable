@@ -370,9 +370,11 @@ def _source_pageset_to_parquet(
     pageset: Tuple[Union[int, float], Union[int, float]],
     dest_path: str,
     sort_output: bool,
+    sample_fraction: float = 1.0,
 ) -> str:
     """
-    Export source data to chunked parquet file using chunk size and offsets.
+    Export source data to chunked parquet file using chunk size and offsets,
+    with an option to take a random sample of the data.
 
     Args:
         source_group_name: str
@@ -386,6 +388,11 @@ def _source_pageset_to_parquet(
             Path to store the output data.
         sort_output: bool
             Specifies whether to sort cytotable output or not.
+        sample_fraction: float
+            Fraction of the data to include in the output (0.0 < sample_fraction <= 1.0).
+            Defaults to 1.0 (no sampling). Note: this is only possible to use
+            through datasets which don't include mixed SQLite types (SQLite does not
+            provide a SQL-based sampling method).
 
     Returns:
         str
@@ -402,6 +409,10 @@ def _source_pageset_to_parquet(
         _sqlite_mixed_type_query_to_parquet,
         _write_parquet_table_with_metadata,
     )
+
+    # Validate sample_fraction
+    if not (0.0 < sample_fraction <= 1.0):
+        raise ValueError("sample_fraction must be between 0.0 and 1.0.")
 
     # attempt to build dest_path
     source_dest_path = (
@@ -457,15 +468,19 @@ def _source_pageset_to_parquet(
         # read data with chunk size + offset
         # and export to parquet
         with _duckdb_reader() as ddb_reader:
+            full_query = f"""
+                        {base_query}
+                        WHERE {source['page_key']} BETWEEN {pageset[0]} AND {pageset[1]}
+                        /* optional ordering per pageset */
+                        {"ORDER BY " + source['page_key'] if sort_output else ""};
+                        """
+
+            # Apply sampling if sample_fraction is less than 1.0
+            if sample_fraction < 1.0:
+                query = f"SELECT * FROM ({query}) USING SAMPLE {sample_fraction};"
+
             _write_parquet_table_with_metadata(
-                table=ddb_reader.execute(
-                    f"""
-                    {base_query}
-                    WHERE {source['page_key']} BETWEEN {pageset[0]} AND {pageset[1]}
-                    /* optional ordering per pageset */
-                    {"ORDER BY " + source['page_key'] if sort_output else ""};
-                    """
-                ).arrow(),
+                table=ddb_reader.execute(full_query).arrow(),
                 where=result_filepath,
             )
     # Include exception handling to read mixed-type data
@@ -1108,6 +1123,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
     page_keys: Dict[str, str],
     data_type_cast_map: Optional[Dict[str, str]] = None,
     add_tablenumber: Optional[bool] = None,
+    pageset_fraction: float = 1.0,
     **kwargs,
 ) -> Union[Dict[str, List[Dict[str, Any]]], List[Any], str]:
     """
@@ -1154,6 +1170,16 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
             A dictionary mapping data type groups to specific types.
             Roughly includes Arrow data types language from:
             https://arrow.apache.org/docs/python/api/datatypes.html
+        add_tablenumber: Optional[bool]
+            Whether to add a calculated tablenumber which helps differentiate
+            various repeated values (such as ObjectNumber) within source data.
+            Useful for processing multiple SQLite or CSV data sources together
+            to retain distinction from each dataset.
+        pageset_fraction: float
+            Fraction of the data to include in the output (0.0 < sample_fraction <= 1.0).
+            Defaults to 1.0 (no sampling). Note: this is only possible to use
+            through datasets which don't include mixed SQLite types (SQLite does not
+            provide a SQL-based sampling method).
         **kwargs: Any:
             Keyword args used for gathering source data, primarily relevant for
             Cloudpathlib cloud-based client configuration.
@@ -1272,6 +1298,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 pageset=pageset,
                                 dest_path=expanded_dest_path,
                                 sort_output=sort_output,
+                                sample_fraction=pageset_fraction
                             ),
                             source_group_name=source_group_name,
                             identifying_columns=identifying_columns,
@@ -1400,6 +1427,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
     add_tablenumber: Optional[bool] = None,
     page_keys: Optional[Dict[str, str]] = None,
     sort_output: bool = True,
+    pageset_fraction: float = 1.0,
     preset: Optional[str] = "cellprofiler_csv",
     parsl_config: Optional[parsl.Config] = None,
     **kwargs,
@@ -1462,6 +1490,11 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             Specifies whether to sort cytotable output or not.
         drop_null: bool (Default value = False)
             Whether to drop nan/null values from results
+        pageset_fraction: float
+            Fraction of the data to include in of each pageset (0.0 < sample_fraction <= 1.0).
+            Defaults to 1.0 (no sampling). Note: this is only possible to use
+            through datasets which don't include mixed SQLite types (SQLite does not
+            provide a SQL-based sampling method).
         preset: str (Default value = "cellprofiler_csv")
             an optional group of presets to use based on common configurations
         parsl_config: Optional[parsl.Config] (Default value = None)
@@ -1594,6 +1627,7 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
             data_type_cast_map=data_type_cast_map,
             add_tablenumber=add_tablenumber,
             sort_output=sort_output,
+            pageset_fraction=pageset_fraction,
             page_keys=cast(dict, page_keys),
             **kwargs,
         )
