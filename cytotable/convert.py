@@ -477,7 +477,9 @@ def _source_pageset_to_parquet(
 
             # Apply sampling if sample_fraction is less than 1.0
             if sample_fraction < 1.0:
-                query = f"SELECT * FROM ({query}) USING SAMPLE {sample_fraction};"
+                full_query = (
+                    f"SELECT * FROM ({full_query}) USING SAMPLE {sample_fraction};"
+                )
 
             _write_parquet_table_with_metadata(
                 table=ddb_reader.execute(full_query).arrow(),
@@ -1298,7 +1300,7 @@ def _to_parquet(  # pylint: disable=too-many-arguments, too-many-locals
                                 pageset=pageset,
                                 dest_path=expanded_dest_path,
                                 sort_output=sort_output,
-                                sample_fraction=pageset_fraction
+                                sample_fraction=pageset_fraction,
                             ),
                             source_group_name=source_group_name,
                             identifying_columns=identifying_columns,
