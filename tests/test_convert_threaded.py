@@ -6,7 +6,7 @@ ThreadPoolExecutor-based tests for CytoTable.convert and related.
 
 
 import pathlib
-from typing import List
+from typing import List, Dict, Any
 
 import pandas as pd
 import pyarrow as pa
@@ -283,3 +283,69 @@ def test_avoid_na_row_output(
             ).column("Metadata_ImageNumber")
         )
     ).as_py()
+
+def test_source_pageset_to_parquet_with_pageset_fraction(
+    load_parsl_threaded: None,
+    fx_tempdir: str,
+    example_local_sources: Dict[str, List[Dict[str, Any]]],
+):
+    """
+    Tests _source_pageset_to_parquet through convert with pageset fraction set.
+    """
+
+    sampled_result = convert(
+            source_path=str(
+                example_local_sources["image.csv"][0]["source_path"].parent
+            ),
+            dest_path=f"{fx_tempdir}/pageset_fraction_test",
+            dest_datatype="parquet",
+            compartments=["cytoplasm", "cells", "nuclei"],
+            metadata=["image"],
+            identifying_columns=["imagenumber"],
+            page_keys={
+                "image": "ImageNumber",
+                "cells": "Cells_ObjectNumber",
+                "nuclei": "Nuclei_ObjectNumber",
+                "cytoplasm": "Cytoplasm_ObjectNumber",
+            },
+            concat=False,
+            join=False,
+            joins=None,
+            chunk_size=4,
+            infer_common_schema=False,
+            drop_null=True,
+            sort_output=True,
+            # set a pageset fraction
+            pageset_fraction=0.5,
+        )
+    
+    entire_result = convert(
+            source_path=str(
+                example_local_sources["image.csv"][0]["source_path"].parent
+            ),
+            dest_path=f"{fx_tempdir}/pageset_fraction_test_entire",
+            dest_datatype="parquet",
+            compartments=["cytoplasm", "cells", "nuclei"],
+            metadata=["image"],
+            identifying_columns=["imagenumber"],
+            page_keys={
+                "image": "ImageNumber",
+                "cells": "Cells_ObjectNumber",
+                "nuclei": "Nuclei_ObjectNumber",
+                "cytoplasm": "Cytoplasm_ObjectNumber",
+            },
+            concat=False,
+            join=False,
+            joins=None,
+            chunk_size=4,
+            infer_common_schema=False,
+            drop_null=True,
+            sort_output=True,
+        )
+    
+    print(parquet.read_table(source=sampled_result["Image.csv"][0]["table"][0]).num_rows)
+    print(parquet.read_table(source=entire_result["Image.csv"][0]["table"][0]).num_rows)
+
+    print(parquet.read_table(source=sampled_result["Image.csv"][0]["table"][0]))
+    print("")
+    print(parquet.read_table(source=entire_result["Image.csv"][0]["table"][0]))

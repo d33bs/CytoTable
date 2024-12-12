@@ -472,14 +472,9 @@ def _source_pageset_to_parquet(
                         {base_query}
                         WHERE {source['page_key']} BETWEEN {pageset[0]} AND {pageset[1]}
                         /* optional ordering per pageset */
-                        {"ORDER BY " + source['page_key'] if sort_output else ""};
+                        {f"USING SAMPLE {int((sample_fraction * 100))} PERCENT (bernoulli)" if sample_fraction < 1.0 else "" }
+                        {"ORDER BY " + source['page_key'] if sort_output else ""}
                         """
-
-            # Apply sampling if sample_fraction is less than 1.0
-            if sample_fraction < 1.0:
-                full_query = (
-                    f"SELECT * FROM ({full_query}) USING SAMPLE {sample_fraction};"
-                )
 
             _write_parquet_table_with_metadata(
                 table=ddb_reader.execute(full_query).arrow(),
