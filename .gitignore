@@ -138,6 +138,7 @@ doctest
 
 # parsl ignores
 runinfo
+cytotable_runinfo*
 
 # test data ignores
 tests/in-carta/colas-lab/data

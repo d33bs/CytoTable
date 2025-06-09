@@ -3,7 +3,6 @@ Utility functions for CytoTable
 """
 
 import logging
-import os
 import pathlib
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -65,7 +64,7 @@ def _default_parsl_config():
             HighThroughputExecutor(
                 label="htex_default_for_cytotable",
             )
-        ]
+        ],
     )
 
 

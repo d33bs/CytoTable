@@ -4,6 +4,8 @@ CytoTable: convert - transforming data for use with pyctyominer.
 
 import itertools
 import logging
+import shutil
+import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
 
 import parsl
@@ -1579,7 +1581,11 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
     if not _parsl_loaded():
         # if we don't have a parsl configuration provided, load the default
         if parsl_config is None:
-            parsl.load(_default_parsl_config())
+            parsl_config_default = _default_parsl_config()
+            parsl_config_default.run_dir = (
+                cytotable_rundir := f"cytotable_runinfo_{uuid.uuid4().hex}"
+            )
+            parsl.load(parsl_config_default)
         else:
             # else we attempt to load the given parsl configuration
             parsl.load(parsl_config)
@@ -1654,6 +1660,16 @@ def convert(  # pylint: disable=too-many-arguments,too-many-locals
         )
 
     # cleanup Parsl executor and related
+    print(dir(parsl.dfk()))
+    parsl.dfk().wait_for_current_tasks()
     parsl.dfk().cleanup()
+    parsl.clear()
+
+    import time
+    time.sleep(5)
+
+    # cleanup Parsl runinfo dir
+    if parsl_config is None:
+        shutil.rmtree(cytotable_rundir, ignore_errors=True)
 
     return output
