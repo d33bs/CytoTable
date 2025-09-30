@@ -98,7 +98,7 @@ def _get_source_filepaths(
             # If targets are specified, only include files matching targets
             (
                 targets is not None
-                and str(subpath.stem).lower() in [target.lower() for target in targets]
+                and any(target.lower() in str(subpath.stem).lower() for target in targets)
                 or subpath.suffix.lower() == ".sqlite"
             )
             # Otherwise, include files matching the source_datatypes
